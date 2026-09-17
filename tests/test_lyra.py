@@ -103,20 +103,16 @@ def test_provider_add_and_delete_updates_config(tmp_path, capsys):
     assert main(["init", "config", "--config", str(config_path)]) == 0
     capsys.readouterr()
 
-    assert main([
-        "provider", "add", "--config", str(config_path), "--id", "example", "--name", "Example",
-        "--base-url", "https://example.test", "--search-path", "/search?q={query}",
-        "--result-selector", "article.song", "--title-selector", ".title", "--details-selector", "a.details",
-        "--artist-selector", ".artist", "--audio-selector", "a.audio", "--audio-attr", "href",
-    ]) == 0
+    assert main(["provider", "add", "https://music.example.com", "--config", str(config_path)]) == 0
     capsys.readouterr()
     config = load_config(config_path, default_registry().ids)
     provider = config.sites[0]
-    assert provider.id == "example"
+    assert provider.id == "music-example"
+    assert provider.name == "Music Example"
     assert provider.adapter == "html"
     assert provider.options["search_path"] == "/search?q={query}"
 
-    assert main(["provider", "delete", "example", "--config", str(config_path)]) == 0
+    assert main(["provider", "delete", "music-example", "--config", str(config_path)]) == 0
     assert "Deleted provider" in capsys.readouterr().out
     assert "sites" not in config_path.read_text(encoding="utf-8")
 

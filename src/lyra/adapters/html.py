@@ -122,7 +122,7 @@ class HtmlAdapter(SiteAdapter):
             return None
         node = self._select_one(soup, selector, site, "audio_selector")
         attr = self._option(site, "audio_attr") or "href"
-        value = node.get(attr)
+        value = node.get(attr) or node.get("src") or node.get("href")
         if not isinstance(value, str) or not value:
             raise SiteError(site.id, "parser", "audio selector has no URL attribute")
         url = self._url(details_url, value, site)

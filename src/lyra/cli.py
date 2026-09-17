@@ -5,7 +5,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 from .adapters.registry import default_registry
 from .application import DownloadService, ProviderTestService, SearchService
@@ -37,14 +37,15 @@ def _parser() -> argparse.ArgumentParser:
     provider = subparsers.add_parser("provider", help="manage configured website providers")
     provider_subparsers = provider.add_subparsers(dest="provider_command", required=True)
     provider_add = provider_subparsers.add_parser("add", help="add a config-driven HTML website provider")
+    provider_add.add_argument("website_url", nargs="?", help="HTTPS website URL used to derive provider defaults")
     provider_add.add_argument("--config", type=Path, default=default_config_path())
-    provider_add.add_argument("--id", required=True, dest="provider_id")
-    provider_add.add_argument("--name", required=True)
-    provider_add.add_argument("--base-url", required=True)
-    provider_add.add_argument("--search-path", required=True, help="URL path containing {query}")
-    provider_add.add_argument("--result-selector", required=True)
-    provider_add.add_argument("--title-selector", required=True)
-    provider_add.add_argument("--details-selector", required=True)
+    provider_add.add_argument("--id", dest="provider_id", help="override the ID derived from the URL")
+    provider_add.add_argument("--name", help="override the name derived from the URL")
+    provider_add.add_argument("--base-url", help="override the base URL derived from the URL")
+    provider_add.add_argument("--search-path", help="URL path containing {query}")
+    provider_add.add_argument("--result-selector")
+    provider_add.add_argument("--title-selector")
+    provider_add.add_argument("--details-selector")
     provider_add.add_argument("--artist-selector")
     provider_add.add_argument("--album-selector")
     provider_add.add_argument("--duration-selector")
@@ -120,6 +121,34 @@ def _provider_options(args: argparse.Namespace) -> dict[str, str]:
     return {name: getattr(args, name) for name in option_names if getattr(args, name) is not None}
 
 
+def _provider_defaults(website_url: str) -> tuple[str, str, str, dict[str, str]]:
+    parsed = urlparse(website_url)
+    if parsed.scheme != "https" or not parsed.netloc or not parsed.hostname:
+        raise ConfigError("website URL must be an HTTPS URL")
+    host_parts = [part for part in parsed.hostname.lower().split(".") if part and part != "www"]
+    domain_parts = host_parts[:-1] if len(host_parts) > 1 else host_parts
+    provider_id = re.sub(r"[^a-z0-9]+", "-", "-".join(domain_parts)).strip("-")
+    if not provider_id:
+        raise ConfigError("website URL does not contain a usable provider ID")
+    provider_name = " ".join(part.capitalize() for part in domain_parts) or provider_id
+    base_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", "", ""))
+    options = {
+        "search_path": "/search?q={query}",
+        "result_selector": "article.song, article.track, .song-result, .track-result",
+        "title_selector": ".title, .song-title, [data-title], h1, h2",
+        "details_selector": "a.details, a.track, a.song, a[href]",
+        "artist_selector": ".artist, .artist-name, [data-artist]",
+        "album_selector": ".album, .album-name, [data-album]",
+        "duration_selector": ".duration, [data-duration]",
+        "lyrics_selector": "#lyrics, .lyrics, [data-lyrics]",
+        "lyrics_extension": "lrc",
+        "audio_selector": "audio, audio source, a.audio, a[href$='.mp3'], a[href$='.m4a'], a[href$='.ogg'], a[href$='.wav']",
+        "audio_attr": "href",
+        "audio_extension": "mp3",
+    }
+    return provider_id, provider_name, base_url, options
+
+
 def _print_provider_test(result, as_json: bool, downloaded: bool) -> int:
     candidate = result.candidate.to_dict() if result.candidate else None
     payload = {
@@ -174,27 +203,35 @@ def _run(args: argparse.Namespace) -> int:
 
     if args.command == "provider":
         if args.provider_command == "add":
-            if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", args.provider_id):
+            website_url = args.website_url or args.base_url
+            if not website_url:
+                raise ConfigError("provide a website URL")
+            default_id, default_name, default_base_url, default_options = _provider_defaults(website_url)
+            provider_id = args.provider_id or default_id
+            provider_name = args.name or default_name
+            base_url = args.base_url or default_base_url
+            if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", provider_id):
                 raise ConfigError("provider id must contain lowercase letters, digits, '-' or '_'")
-            if "{query}" not in args.search_path:
+            if "{query}" not in (args.search_path or default_options["search_path"]):
                 raise ConfigError("search path must contain {query}")
-            parsed_base_url = urlparse(args.base_url)
+            parsed_base_url = urlparse(base_url)
             if parsed_base_url.scheme != "https" or not parsed_base_url.netloc:
                 raise ConfigError("base URL must be an HTTPS URL")
             if args.rate_limit < 0:
                 raise ConfigError("rate limit must be non-negative")
             provider = {
-                "id": args.provider_id,
-                "name": args.name,
+                "id": provider_id,
+                "name": provider_name,
                 "adapter": "html",
-                "base_url": args.base_url,
+                "base_url": base_url,
                 "enabled": True,
                 "priority": args.priority,
                 "rate_limit": args.rate_limit,
+                **default_options,
                 **_provider_options(args),
             }
             add_provider(args.config, provider, force=args.force)
-            print(f"Added provider: {args.provider_id}")
+            print(f"Added provider: {provider_id}")
             return EXIT_OK
         if args.provider_command == "delete":
             delete_provider(args.config, args.provider_id)

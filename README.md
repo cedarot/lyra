@@ -45,25 +45,13 @@ fixture_path = "tests/fixtures/site"
 
 ## Website providers
 
-Add a new website without changing Python code by configuring the generic HTML adapter with CSS selectors:
+Add a new website without specifying an ID, name, base URL, or selectors. Lyra derives provider metadata from the URL and applies generic HTML selectors:
 
 ```sh
-lyra provider add \
-  --config ~/.config/lyra/config.toml \
-  --id example \
-  --name "Example Music" \
-  --base-url https://music.example \
-  --search-path "/search?q={query}" \
-  --result-selector "article.song" \
-  --title-selector ".title" \
-  --details-selector "a.details" \
-  --artist-selector ".artist" \
-  --lyrics-selector "#lyrics" \
-  --audio-selector "a.audio" \
-  --audio-attr href
+lyra provider add https://music.example
 ```
 
-Manage providers with `lyra provider delete PROVIDER_ID`. Test search and audio access with `lyra provider test PROVIDER_ID --query "song title" --audio`; `--audio` downloads the resource into memory and reports the byte count without saving it. Provider definitions contain selectors and URLs only; do not add credentials, cookies, or tokens.
+For sites with non-standard HTML, override individual defaults such as `--search-path`, `--result-selector`, `--title-selector`, or `--audio-selector`. Manage providers with `lyra provider delete PROVIDER_ID`. Test search and audio access with `lyra provider test PROVIDER_ID --query "song title" --audio`; `--audio` downloads the resource into memory and reports the byte count without saving it. Provider definitions contain selectors and URLs only; do not add credentials, cookies, or tokens.
 
 ## Safety and access boundaries
 
