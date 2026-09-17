@@ -68,6 +68,8 @@ lyra download-url 'https://cdn.example/audio/song.flac?signature=...' --output .
 
 `--output` is optional: without it, Lyra uses `settings.output_dir` from the selected configuration. When supplied, it is treated as a directory and Lyra saves the file inside it using the filename from the URL path. `--filename` can override that name. Lyra preserves the URL extension, supports `--overwrite` and `--json`, and reports HTTP status failures such as 403 or 404. Signed URLs may expire quickly; Lyra does not bypass or refresh access-control tokens.
 
+Lyra also accepts common shell-escaped query delimiters copied into the argument, such as `\?`, `\=`, and `\&`, and normalizes them before making the request.
+
 ## Adapter development
 
 Adapters implement `search`, `get_details`, `get_lyrics`, and `get_audio` behind `lyra.adapters.SiteAdapter`. Keep HTML parsing inside the adapter, add offline fixtures for normal and changed page structures, and return the shared domain models so the CLI and application layer remain site-agnostic.

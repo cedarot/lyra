@@ -12,6 +12,11 @@ from .models import AppConfig, DirectDownloadResult, DownloadResult, ProviderTes
 from .storage import safe_component, save_audio_bytes, save_download
 
 
+def normalize_direct_url(url: str) -> str:
+    """Accept common shell-escaped query delimiters copied into a URL argument."""
+    return re.sub(r"\\([?=&])", r"\1", url.strip())
+
+
 @dataclass
 class SearchService:
     config: AppConfig
@@ -72,6 +77,7 @@ class DirectDownloadService:
         filename: str | None = None,
         overwrite: bool = False,
     ) -> DirectDownloadResult:
+        url = normalize_direct_url(url)
         parsed = urlparse(url)
         if parsed.scheme != "https" or not parsed.netloc:
             raise LyraError("direct download URL must be an HTTPS URL")

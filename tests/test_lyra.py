@@ -200,6 +200,16 @@ def test_direct_download_uses_configured_directory_and_url_filename(tmp_path, mo
     assert Path(result.path).read_bytes() == b"FLAC DATA"
 
 
+def test_direct_download_normalizes_shell_escaped_url_delimiters(tmp_path, monkeypatch):
+    monkeypatch.setattr(application, "HttpClient", FakeDirectHttpClient)
+    service = DirectDownloadService(AppConfig(output_dir=str(tmp_path)))
+
+    result = service.download(r"https://cdn.example/path/network-name.flac\?signature\=temporary")
+
+    assert result.url == "https://cdn.example/path/network-name.flac?signature=temporary"
+    assert Path(result.path).name == "network-name.flac"
+
+
 def test_direct_download_output_is_a_directory_with_url_filename(tmp_path, monkeypatch):
     monkeypatch.setattr(application, "HttpClient", FakeDirectHttpClient)
     explicit_dir = tmp_path / "explicit-downloads"
