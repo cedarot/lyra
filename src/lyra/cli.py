@@ -57,6 +57,8 @@ def _parser() -> argparse.ArgumentParser:
     provider_add.add_argument("--audio-extension", default="mp3")
     provider_add.add_argument("--priority", type=int, default=0)
     provider_add.add_argument("--rate-limit", type=float, default=0.0, help="seconds between requests")
+    provider_add.add_argument("--access-mode", choices=("http", "browser"), default="http", help="provider access transport")
+    provider_add.add_argument("--browser-headless", action="store_true", help="run browser access without a visible window")
     provider_add.add_argument("--force", action="store_true", help="replace an existing provider")
 
     provider_list = provider_subparsers.add_parser("list", help="list configured website providers")
@@ -208,6 +210,7 @@ def _print_provider_list(config, as_json: bool) -> int:
         "id": site.id,
         "name": site.name,
         "adapter": site.adapter,
+        "access_mode": site.access_mode,
         "base_url": site.base_url,
         "enabled": site.enabled,
         "priority": site.priority,
@@ -218,9 +221,9 @@ def _print_provider_list(config, as_json: bool) -> int:
         if not providers:
             print("No providers configured.")
         else:
-            print("ID\tNAME\tADAPTER\tENABLED\tBASE URL")
+            print("ID\tNAME\tADAPTER\tACCESS\tENABLED\tBASE URL")
             for provider in providers:
-                print(f"{provider['id']}\t{provider['name']}\t{provider['adapter']}\t{str(provider['enabled']).lower()}\t{provider['base_url']}")
+                print(f"{provider['id']}\t{provider['name']}\t{provider['adapter']}\t{provider['access_mode']}\t{str(provider['enabled']).lower()}\t{provider['base_url']}")
     return EXIT_OK
 
 
@@ -291,10 +294,13 @@ def _run(args: argparse.Namespace) -> int:
                 raise ConfigError("base URL must be an HTTPS URL")
             if args.rate_limit < 0:
                 raise ConfigError("rate limit must be non-negative")
+            if args.browser_headless and args.access_mode != "browser":
+                raise ConfigError("--browser-headless requires --access-mode browser")
             provider = {
                 "id": provider_id,
                 "name": provider_name,
                 "adapter": "html",
+                "access_mode": args.access_mode,
                 "base_url": base_url,
                 "enabled": True,
                 "priority": args.priority,
@@ -302,6 +308,8 @@ def _run(args: argparse.Namespace) -> int:
                 **default_options,
                 **_provider_options(args),
             }
+            if args.browser_headless:
+                provider["browser_headless"] = True
             add_provider(args.config, provider, force=args.force)
             print(f"Added provider: {provider_id}")
             return EXIT_OK

@@ -31,7 +31,7 @@ max_response_bytes = 10485760
 '''
 
 _SITE_RESERVED_KEYS = {
-    "id", "name", "adapter", "base_url", "enabled", "priority", "fixture_path",
+    "id", "name", "adapter", "access_mode", "base_url", "enabled", "priority", "fixture_path",
     "timeout", "retries", "rate_limit",
 }
 
@@ -174,6 +174,9 @@ def load_config(path: Path, known_adapters: set[str] | None = None) -> AppConfig
             raise ConfigError(f"sites.{site_id}.adapter must be a non-empty string")
         if known_adapters is not None and adapter not in known_adapters:
             raise ConfigError(f"unknown adapter '{adapter}' for site '{site_id}'")
+        access_mode = item.get("access_mode", "http")
+        if not isinstance(access_mode, str) or access_mode not in {"http", "browser"}:
+            raise ConfigError(f"sites.{site_id}.access_mode must be 'http' or 'browser'")
         if not isinstance(name, str) or not name.strip():
             raise ConfigError(f"sites.{site_id}.name must be a non-empty string")
         enabled = item.get("enabled", True)
@@ -197,11 +200,15 @@ def load_config(path: Path, known_adapters: set[str] | None = None) -> AppConfig
         rate_limit = item.get("rate_limit", 0.0)
         if isinstance(rate_limit, bool) or not isinstance(rate_limit, (int, float)) or rate_limit < 0:
             raise ConfigError(f"sites.{site_id}.rate_limit must be a non-negative number")
+        browser_headless = item.get("browser_headless", False)
+        if not isinstance(browser_headless, bool):
+            raise ConfigError(f"sites.{site_id}.browser_headless must be boolean")
         options = {key: value for key, value in item.items() if key not in _SITE_RESERVED_KEYS}
         sites.append(SiteConfig(
             id=site_id,
             name=name,
             adapter=adapter,
+            access_mode=access_mode,
             base_url=base_url,
             enabled=enabled,
             priority=priority,

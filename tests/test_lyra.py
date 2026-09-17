@@ -139,11 +139,59 @@ def test_provider_add_and_delete_updates_config(tmp_path, capsys):
     assert "sites" not in config_path.read_text(encoding="utf-8")
 
 
+def test_provider_add_supports_browser_access_mode(tmp_path, capsys):
+    config_path = tmp_path / "config.toml"
+    assert main(["init", "config", "--config", str(config_path)]) == 0
+    capsys.readouterr()
+
+    assert main([
+        "provider", "add", "https://music.example.com", "--access-mode", "browser",
+        "--config", str(config_path),
+    ]) == 0
+    capsys.readouterr()
+
+    config = load_config(config_path, default_registry().ids)
+    assert config.sites[0].access_mode == "browser"
+
+
+def test_config_rejects_unknown_access_mode(tmp_path):
+    path = tmp_path / "bad.toml"
+    path.write_text(
+        "[settings]\noutput_dir = \"./downloads\"\n\n[[sites]]\nid = \"x\"\nadapter = \"fixture\"\naccess_mode = \"proxy\"\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="access_mode"):
+        load_config(path, default_registry().ids)
+
+
+def test_browser_access_mode_selects_browser_transport(monkeypatch):
+    site = SiteConfig(id="browser", name="Browser", adapter="html", access_mode="browser")
+    config = AppConfig(output_dir="./downloads", sites=(site,))
+
+    class FakeBrowserClient:
+        def __init__(self, timeout, retries, max_response_bytes, selected_site):
+            self.selected_site = selected_site
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(application, "BrowserClient", FakeBrowserClient)
+
+    client = application.client_for_provider(config, site)
+
+    assert isinstance(client, FakeBrowserClient)
+    assert client.selected_site is site
+
+
 class FakeHttpClient:
     def fetch_text(self, url, site):
         if "/search" in url:
             return """<article class='song'><span class='title'>New Song</span><span class='artist'>New Artist</span><a class='details' href='/song/1'>details</a></article>"""
         return """<div id='lyrics'>[00:01]hello</div><audio id='audio' src='/audio/new.mp3'></audio>"""
+
+    def close(self):
+        pass
 
 
 class FakeResolveHttpClient(FakeHttpClient):

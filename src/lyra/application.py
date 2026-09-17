@@ -7,7 +7,7 @@ from urllib.parse import unquote, urlparse
 
 from .adapters.registry import AdapterRegistry
 from .errors import LyraError, SiteError
-from .http import HttpClient
+from .http import BrowserClient, HttpClient
 from .models import AppConfig, DirectDownloadResult, DownloadResult, ProviderTestResult, ResolvedAudioResult, SearchReport, SiteFailure, SongCandidate, SiteConfig
 from .storage import safe_component, save_audio_bytes, save_download
 
@@ -24,6 +24,14 @@ def enabled_provider(config: AppConfig, provider_id: str) -> SiteConfig:
     return site
 
 
+def client_for_provider(config: AppConfig, site: SiteConfig):
+    if site.access_mode == "http":
+        return HttpClient(config.timeout, config.retries, config.max_response_bytes)
+    if site.access_mode == "browser":
+        return BrowserClient(config.timeout, config.retries, config.max_response_bytes, site)
+    raise LyraError(f"unsupported provider access mode: {site.access_mode}")
+
+
 @dataclass
 class SearchService:
     config: AppConfig
@@ -32,12 +40,12 @@ class SearchService:
     def search(self, query: str, provider_id: str | None = None) -> SearchReport:
         if not query.strip():
             raise LyraError("search query must not be empty")
-        client = HttpClient(self.config.timeout, self.config.retries, self.config.max_response_bytes)
         report = SearchReport()
         sites = (enabled_provider(self.config, provider_id),) if provider_id is not None else tuple(
             site for site in self.config.sites if site.enabled
         )
         for site in sorted(sites, key=lambda item: -item.priority):
+            client = client_for_provider(self.config, site)
             try:
                 candidates = self.registry.get(site.adapter).search(query, site, client)
                 if not candidates:
@@ -45,6 +53,8 @@ class SearchService:
                 report.candidates.extend(candidates)
             except SiteError as exc:
                 report.failures.append(SiteFailure(site.id, exc.category, str(exc)))
+            finally:
+                client.close()
         report.candidates.sort(key=lambda item: (-next(s.priority for s in self.config.sites if s.id == item.site_id), -item.match_score, item.site_id, item.title.casefold()))
         return report
 
@@ -56,22 +66,25 @@ class DownloadService:
 
     def download(self, candidate: SongCandidate, output_dir: str | None = None, overwrite: bool = False) -> DownloadResult:
         site = enabled_provider(self.config, candidate.site_id)
-        client = HttpClient(self.config.timeout, self.config.retries, self.config.max_response_bytes)
+        client = client_for_provider(self.config, site)
         adapter = self.registry.get(site.adapter)
-        details = adapter.get_details(candidate, site, client)
-        lyrics = adapter.get_lyrics(details, site, client)
-        audio = adapter.get_audio(details, site, client)
-        if audio is not None and audio.data is None and audio.url:
-            audio = replace(audio, data=client.fetch_bytes(audio.url, site, accept=audio.content_type))
-        if lyrics is None and audio is None:
-            raise LyraError("selected result has no downloadable lyrics or audio")
-        return save_download(
-            details,
-            lyrics,
-            audio,
-            output_dir or self.config.output_dir,
-            overwrite=overwrite,
-        )
+        try:
+            details = adapter.get_details(candidate, site, client)
+            lyrics = adapter.get_lyrics(details, site, client)
+            audio = adapter.get_audio(details, site, client)
+            if audio is not None and audio.data is None and audio.url:
+                audio = replace(audio, data=client.fetch_bytes(audio.url, site, accept=audio.content_type))
+            if lyrics is None and audio is None:
+                raise LyraError("selected result has no downloadable lyrics or audio")
+            return save_download(
+                details,
+                lyrics,
+                audio,
+                output_dir or self.config.output_dir,
+                overwrite=overwrite,
+            )
+        finally:
+            client.close()
 
 
 @dataclass
@@ -122,18 +135,19 @@ class ResolveService:
         if result_index < 1 or result_index > len(report.candidates):
             raise LyraError(f"result must be between 1 and {len(report.candidates)}")
         candidate = report.candidates[result_index - 1]
-        site = next((site for site in self.config.sites if site.id == candidate.site_id and site.enabled), None)
-        if site is None:
-            raise LyraError(f"site is not enabled: {candidate.site_id}")
-        client = HttpClient(self.config.timeout, self.config.retries, self.config.max_response_bytes)
+        site = enabled_provider(self.config, candidate.site_id)
+        client = client_for_provider(self.config, site)
         adapter = self.registry.get(site.adapter)
-        details = adapter.get_details(candidate, site, client)
-        audio = adapter.get_audio(details, site, client)
-        if audio is None:
-            raise LyraError(f"provider has no audio resource: {candidate.site_id}")
-        if not audio.url:
-            raise LyraError(f"provider has no direct audio URL: {candidate.site_id}")
-        return ResolvedAudioResult(candidate=candidate, url=normalize_direct_url(audio.url), content_type=audio.content_type)
+        try:
+            details = adapter.get_details(candidate, site, client)
+            audio = adapter.get_audio(details, site, client)
+            if audio is None:
+                raise LyraError(f"provider has no audio resource: {candidate.site_id}")
+            if not audio.url:
+                raise LyraError(f"provider has no direct audio URL: {candidate.site_id}")
+            return ResolvedAudioResult(candidate=candidate, url=normalize_direct_url(audio.url), content_type=audio.content_type)
+        finally:
+            client.close()
 
 
 @dataclass
@@ -143,23 +157,26 @@ class ProviderTestService:
 
     def test(self, provider_id: str, query: str, result_index: int = 1, download_audio: bool = False) -> ProviderTestResult:
         site = enabled_provider(self.config, provider_id)
-        client = HttpClient(self.config.timeout, self.config.retries, self.config.max_response_bytes)
+        client = client_for_provider(self.config, site)
         adapter = self.registry.get(site.adapter)
-        candidates = adapter.search(query, site, client)
-        if not candidates:
-            raise LyraError(f"provider returned no results for query: {query}")
-        if result_index < 1 or result_index > len(candidates):
-            raise LyraError(f"result must be between 1 and {len(candidates)}")
-        candidate = candidates[result_index - 1]
-        details = adapter.get_details(candidate, site, client)
-        audio = adapter.get_audio(details, site, client)
-        if audio is None:
-            return ProviderTestResult(provider_id, query, candidate, False, False, None, "audio resource unavailable")
-        if not download_audio:
-            return ProviderTestResult(provider_id, query, candidate, True, False, len(audio.data) if audio.data is not None else None)
-        if audio.data is not None:
-            return ProviderTestResult(provider_id, query, candidate, True, True, len(audio.data))
-        if not audio.url:
-            return ProviderTestResult(provider_id, query, candidate, True, False, None, "audio resource has no URL")
-        data = client.fetch_bytes(audio.url, site, accept=audio.content_type)
-        return ProviderTestResult(provider_id, query, candidate, True, True, len(data))
+        try:
+            candidates = adapter.search(query, site, client)
+            if not candidates:
+                raise LyraError(f"provider returned no results for query: {query}")
+            if result_index < 1 or result_index > len(candidates):
+                raise LyraError(f"result must be between 1 and {len(candidates)}")
+            candidate = candidates[result_index - 1]
+            details = adapter.get_details(candidate, site, client)
+            audio = adapter.get_audio(details, site, client)
+            if audio is None:
+                return ProviderTestResult(provider_id, query, candidate, False, False, None, "audio resource unavailable")
+            if not download_audio:
+                return ProviderTestResult(provider_id, query, candidate, True, False, len(audio.data) if audio.data is not None else None)
+            if audio.data is not None:
+                return ProviderTestResult(provider_id, query, candidate, True, True, len(audio.data))
+            if not audio.url:
+                return ProviderTestResult(provider_id, query, candidate, True, False, None, "audio resource has no URL")
+            data = client.fetch_bytes(audio.url, site, accept=audio.content_type)
+            return ProviderTestResult(provider_id, query, candidate, True, True, len(data))
+        finally:
+            client.close()

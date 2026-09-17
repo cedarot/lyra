@@ -17,6 +17,7 @@ class SiteConfig:
     retries: int | None = None
     rate_limit: float = 0.0
     options: dict[str, Any] = field(default_factory=dict)
+    access_mode: str = "http"
 
 
 @dataclass(frozen=True)

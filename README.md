@@ -44,6 +44,8 @@ fixture_path = "tests/fixtures/site"
 
 `search` writes a short-lived selection cache under `<output_dir>/.lyra/search-results.json`, which lets `download --result N` select the result from the most recent search. Pass `--provider PROVIDER_ID` to `search` to query only one enabled provider. The same option on `download` limits a new query to that provider, or filters cached results when no query is supplied. Both download commands use `settings.output_dir` by default; `--output DIR` is optional and means “save inside this directory”. Use `--json` for scripts. Existing output files are not overwritten unless `--overwrite` is supplied.
 
+Providers use `access_mode = "http"` by default. For a provider that requires JavaScript and a user-controlled browser session, configure `access_mode = "browser"` (install with `python -m pip install -e '.[browser]'` and then `python -m playwright install chromium`). Browser mode opens an ephemeral visible browser, keeps its session only for the current Lyra command, and lets the user complete any site verification manually. It does not persist cookies or automate CAPTCHA/access-control bypasses. `--browser-headless` is available for browser providers that do not require manual interaction.
+
 `resolve "歌曲名"` searches the enabled providers, resolves the selected result's direct audio URL, and prints it. `download "歌曲名"` performs the same search and automatically downloads the highest-ranked result; use `--result N` to choose a different result.
 
 ## Website providers
@@ -54,7 +56,7 @@ Add a new website without specifying an ID, name, base URL, or selectors. Lyra d
 lyra provider add https://music.example
 ```
 
-For sites with non-standard HTML, override individual defaults such as `--search-path`, `--result-selector`, `--title-selector`, or `--audio-selector`. List providers with `lyra provider list` or `lyra provider list --json`; delete one with `lyra provider delete PROVIDER_ID`. Test a provider with `lyra provider test PROVIDER_ID --query song title --audio`. The provider ID is required and the query accepts multiple unquoted words. `--audio` downloads the resource into memory and reports the byte count without saving it. Provider definitions contain selectors and URLs only; do not add credentials, cookies, or tokens.
+For sites with non-standard HTML, override individual defaults such as `--search-path`, `--result-selector`, `--title-selector`, or `--audio-selector`. Add a browser-backed provider with `lyra provider add https://music.example --access-mode browser`. List providers with `lyra provider list` or `lyra provider list --json`; delete one with `lyra provider delete PROVIDER_ID`. Test a provider with `lyra provider test PROVIDER_ID --query song title --audio`. The provider ID is required and the query accepts multiple unquoted words. `--audio` downloads the resource into memory and reports the byte count without saving it. Provider definitions contain selectors and URLs only; do not add credentials, cookies, or tokens.
 
 ## Safety and access boundaries
 
