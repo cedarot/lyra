@@ -110,6 +110,8 @@ class BrowserClient:
     for providers that require manual interaction.
     """
 
+    auto_cdp_endpoint = "http://127.0.0.1:9222"
+
     def __init__(self, timeout: float, retries: int, max_response_bytes: int, site: SiteConfig):
         self.timeout = timeout
         self.retries = retries
@@ -131,6 +133,7 @@ class BrowserClient:
 
             self._playwright = sync_playwright().start()
             endpoint = self.site.options.get("browser_endpoint")
+            auto_endpoint = self._detect_auto_cdp_endpoint() if endpoint is None else None
             if endpoint is not None:
                 if not isinstance(endpoint, str):
                     raise SiteError(self.site.id, "configuration", "browser_endpoint must be a URL")
@@ -138,6 +141,15 @@ class BrowserClient:
                 if parsed.scheme not in {"http", "https", "ws", "wss"} or not parsed.netloc or parsed.username or parsed.password:
                     raise SiteError(self.site.id, "configuration", "browser_endpoint must be a credential-free CDP URL")
                 self._browser = self._playwright.chromium.connect_over_cdp(endpoint)
+                self._owns_browser = False
+                if self._browser.contexts:
+                    self._context = self._browser.contexts[0]
+                    self._owns_context = False
+                else:
+                    self._context = self._browser.new_context()
+                    self._owns_context = True
+            elif auto_endpoint:
+                self._browser = self._playwright.chromium.connect_over_cdp(auto_endpoint)
                 self._owns_browser = False
                 if self._browser.contexts:
                     self._context = self._browser.contexts[0]
@@ -156,6 +168,16 @@ class BrowserClient:
         except Exception as exc:
             self.close()
             raise SiteError(self.site.id, "browser", "cannot start the configured browser") from exc
+
+    def _detect_auto_cdp_endpoint(self) -> str | None:
+        """Use the conventional local Chrome CDP endpoint when it is already available."""
+        try:
+            with urlopen(f"{self.auto_cdp_endpoint}/json/version", timeout=0.25) as response:
+                if response.status < 400:
+                    return self.auto_cdp_endpoint
+        except (HTTPError, URLError, TimeoutError, OSError):
+            pass
+        return None
 
     def _load(self, url: str) -> None:
         self._start()

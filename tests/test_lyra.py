@@ -339,6 +339,22 @@ def test_browser_client_launches_headless_without_cdp(monkeypatch):
     assert calls["headless"] is True
 
 
+def test_browser_client_detects_local_cdp_endpoint(monkeypatch):
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    monkeypatch.setattr("lyra.http.urlopen", lambda *args, **kwargs: FakeResponse())
+    client = BrowserClient(10.0, 1, 1024, SiteConfig(id="browser", name="Browser", adapter="html"))
+
+    assert client._detect_auto_cdp_endpoint() == "http://127.0.0.1:9222"
+
+
 class FakeHttpClient:
     def fetch_text(self, url, site):
         if "/search" in url:
