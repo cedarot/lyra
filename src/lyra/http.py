@@ -107,11 +107,11 @@ class HttpClient:
 
 
 class BrowserClient:
-    """Ephemeral headless browser transport for providers requiring a browser session.
+    """Browser transport for providers requiring a browser session.
 
     This transport does not persist cookies or automate CAPTCHA/access-control bypasses.
-    Browser mode launches silently by default. A visible browser is an explicit opt-in
-    for providers that require manual interaction.
+    Browser mode launches silently by default. A managed Chrome session may remain
+    available after a command so later Lyra commands can reuse its verification state.
     """
 
     auto_cdp_endpoint = "http://127.0.0.1:9222"
@@ -331,8 +331,6 @@ class BrowserClient:
         if not url.startswith("https://"):
             raise SiteError(site.id, "security", "only HTTPS resources are allowed")
         self._start()
-        if self._managed_browser and self._page is None and self.site.base_url:
-            self._load(self.site.base_url)
         timeout_ms = int((site.timeout or self.timeout) * 1000)
         try:
             response = self._context.request.post(
@@ -376,7 +374,6 @@ class BrowserClient:
                 self._playwright.stop()
             except Exception:
                 pass
-        self._stop_managed_chrome()
         self._page = None
         self._context = None
         self._browser = None

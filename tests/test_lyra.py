@@ -385,6 +385,29 @@ def test_24bit_browser_can_launch_managed_chrome(monkeypatch, tmp_path):
     assert calls["terminated"] is True
 
 
+def test_managed_chrome_survives_client_close():
+    class FakeProcess:
+        def __init__(self):
+            self.terminated = False
+
+        def terminate(self):
+            self.terminated = True
+
+    class FakePlaywright:
+        def stop(self):
+            pass
+
+    process = FakeProcess()
+    client = BrowserClient(10.0, 1, 1024, SiteConfig(id="24bit", name="24bit", adapter="24bit"))
+    client._browser_process = process
+    client._managed_browser = True
+    client._playwright = FakePlaywright()
+
+    client.close()
+
+    assert process.terminated is False
+
+
 class FakeHttpClient:
     def fetch_text(self, url, site):
         if "/search" in url:
