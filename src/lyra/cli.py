@@ -85,7 +85,7 @@ def _parser() -> argparse.ArgumentParser:
     download.add_argument("query", nargs="?")
     download.add_argument("--config", type=Path, default=default_config_path())
     download.add_argument("--result", type=int, help="one-based cached result index")
-    download.add_argument("--output", type=str)
+    download.add_argument("--output", type=str, help="output directory; defaults to settings.output_dir")
     download.add_argument("--overwrite", action="store_true")
     download.add_argument("--json", action="store_true", dest="as_json")
 
