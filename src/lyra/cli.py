@@ -36,9 +36,10 @@ def _parser() -> argparse.ArgumentParser:
 
     provider = subparsers.add_parser("provider", help="manage configured website providers")
     provider_subparsers = provider.add_subparsers(dest="provider_command", required=True)
-    provider_add = provider_subparsers.add_parser("add", help="add a config-driven HTML website provider")
+    provider_add = provider_subparsers.add_parser("add", help="add a configured website provider")
     provider_add.add_argument("website_url", nargs="?", help="HTTPS website URL used to derive provider defaults")
     provider_add.add_argument("--config", type=Path, default=default_config_path())
+    provider_add.add_argument("--adapter", choices=sorted(default_registry().ids), default="html", help="provider adapter")
     provider_add.add_argument("--id", dest="provider_id", help="override the ID derived from the URL")
     provider_add.add_argument("--name", help="override the name derived from the URL")
     provider_add.add_argument("--base-url", help="override the base URL derived from the URL")
@@ -60,6 +61,7 @@ def _parser() -> argparse.ArgumentParser:
     provider_add.add_argument("--access-mode", choices=("http", "browser"), default="http", help="provider access transport")
     provider_add.add_argument("--browser-headless", action="store_true", help="run browser access without a visible window")
     provider_add.add_argument("--browser-endpoint", help="credential-free CDP endpoint for a user-launched browser")
+    provider_add.add_argument("--quality", choices=("96", "192"), default="96", help="24bit audio quality")
     provider_add.add_argument("--force", action="store_true", help="replace an existing provider")
 
     provider_list = provider_subparsers.add_parser("list", help="list configured website providers")
@@ -288,13 +290,15 @@ def _run(args: argparse.Namespace) -> int:
             base_url = args.base_url or default_base_url
             if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", provider_id):
                 raise ConfigError("provider id must contain lowercase letters, digits, '-' or '_'")
-            if "{query}" not in (args.search_path or default_options["search_path"]):
+            if args.adapter == "html" and "{query}" not in (args.search_path or default_options["search_path"]):
                 raise ConfigError("search path must contain {query}")
             parsed_base_url = urlparse(base_url)
             if parsed_base_url.scheme != "https" or not parsed_base_url.netloc:
                 raise ConfigError("base URL must be an HTTPS URL")
             if args.rate_limit < 0:
                 raise ConfigError("rate limit must be non-negative")
+            if args.adapter != "24bit" and args.quality != "96":
+                raise ConfigError("--quality requires --adapter 24bit")
             if args.browser_headless and args.access_mode != "browser":
                 raise ConfigError("--browser-headless requires --access-mode browser")
             if args.browser_endpoint:
@@ -306,15 +310,18 @@ def _run(args: argparse.Namespace) -> int:
             provider = {
                 "id": provider_id,
                 "name": provider_name,
-                "adapter": "html",
+                "adapter": args.adapter,
                 "access_mode": args.access_mode,
                 "base_url": base_url,
                 "enabled": True,
                 "priority": args.priority,
                 "rate_limit": args.rate_limit,
-                **default_options,
-                **_provider_options(args),
             }
+            if args.adapter == "html":
+                provider.update(default_options)
+                provider.update(_provider_options(args))
+            else:
+                provider["quality"] = args.quality
             if args.browser_headless:
                 provider["browser_headless"] = True
             if args.browser_endpoint:

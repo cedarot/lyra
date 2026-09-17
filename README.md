@@ -60,6 +60,19 @@ lyra provider add https://music.example
 
 For sites with non-standard HTML, override individual defaults such as `--search-path`, `--result-selector`, `--title-selector`, or `--audio-selector`. Add a browser-backed provider with `lyra provider add https://music.example --access-mode browser`. List providers with `lyra provider list` or `lyra provider list --json`; delete one with `lyra provider delete PROVIDER_ID`. Test a provider with `lyra provider test PROVIDER_ID --query song title --audio`. The provider ID is required and the query accepts multiple unquoted words. `--audio` downloads the resource into memory and reports the byte count without saving it. Provider definitions contain selectors and URLs only; do not add credentials, cookies, or tokens.
 
+24bit has a dedicated adapter because its search is a JavaScript JSON request rather than a stable search URL. Configure it once with the known interface:
+
+```sh
+lyra provider add https://www.24bit.net \
+  --id 24bit \
+  --adapter 24bit \
+  --access-mode browser \
+  --browser-endpoint http://127.0.0.1:9222 \
+  --quality 96
+```
+
+The adapter posts to `/api/player/searchOnlineMusicOne` with `keyword` and `page`, then resolves each result through `/music/c/{id}` for 24-bit 96 kHz or `/music/a/{id}` for 24-bit 192 kHz. It reads the currently signed audio URL from the detail page's `audio source[src]`; signed URLs are intentionally not persisted because they expire. Future searches use these fixed routes directly and do not perform page or endpoint discovery.
+
 ## Safety and access boundaries
 
 Lyra does not bypass DRM, paywalls, CAPTCHA, login restrictions, or other access controls. Users are responsible for complying with the target site's terms, copyright rules, and applicable law. Credentials, cookies, and access tokens are not stored by the MVP.

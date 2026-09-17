@@ -7,6 +7,7 @@ import pytest
 
 from lyra.adapters.registry import default_registry
 from lyra.adapters.html import HtmlAdapter
+from lyra.adapters.twentyfourbit import TwentyFourBitAdapter
 from lyra.application import DirectDownloadService, DownloadService, ResolveService, SearchService
 import lyra.application as application
 from lyra.cli import main
@@ -154,6 +155,65 @@ def test_provider_add_supports_browser_access_mode(tmp_path, capsys):
     config = load_config(config_path, default_registry().ids)
     assert config.sites[0].access_mode == "browser"
     assert config.sites[0].options["browser_endpoint"] == "http://127.0.0.1:9222"
+
+
+def test_provider_add_supports_24bit_adapter(tmp_path, capsys):
+    config_path = tmp_path / "config.toml"
+    assert main(["init", "config", "--config", str(config_path)]) == 0
+    capsys.readouterr()
+
+    assert main([
+        "provider", "add", "https://www.24bit.net", "--id", "24bit",
+        "--adapter", "24bit", "--access-mode", "browser",
+        "--browser-endpoint", "http://127.0.0.1:9222", "--quality", "192",
+        "--config", str(config_path),
+    ]) == 0
+    capsys.readouterr()
+
+    config = load_config(config_path, default_registry().ids)
+    provider = config.sites[0]
+    assert provider.adapter == "24bit"
+    assert provider.options["quality"] == "192"
+    assert provider.options["browser_endpoint"] == "http://127.0.0.1:9222"
+
+
+class FakeTwentyFourBitClient:
+    def __init__(self):
+        self.posts = []
+
+    def post_json(self, url, payload, site):
+        self.posts.append((url, payload, site.id))
+        return {
+            "status": True,
+            "result": [{
+                "id": "song-1", "name": "Test Song", "player": "Test Artist", "album": "Test Album",
+            }],
+        }
+
+    def fetch_text(self, url, site):
+        return "<audio><source src='https://cdn.example/song.flac?signature=temporary' type='audio/flac'></audio>"
+
+
+def test_24bit_adapter_uses_fixed_search_and_detail_interfaces():
+    site = SiteConfig(
+        id="24bit", name="24bit", adapter="24bit", base_url="https://www.24bit.net",
+        options={"quality": "192"},
+    )
+    client = FakeTwentyFourBitClient()
+    adapter = TwentyFourBitAdapter()
+
+    candidates = adapter.search("十年人间", site, client)
+    details = adapter.get_details(candidates[0], site, client)
+
+    assert client.posts == [(
+        "https://www.24bit.net/api/player/searchOnlineMusicOne",
+        {"keyword": "%E5%8D%81%E5%B9%B4%E4%BA%BA%E9%97%B4", "page": 1},
+        "24bit",
+    )]
+    assert candidates[0].details_url == "https://www.24bit.net/music/a/song-1"
+    assert candidates[0].adapter_ref == "song-1"
+    assert details.audio.url == "https://cdn.example/song.flac?signature=temporary"
+    assert details.audio.extension == ".flac"
 
 
 def test_config_rejects_unknown_access_mode(tmp_path):

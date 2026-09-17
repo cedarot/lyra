@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -51,6 +52,51 @@ class HttpClient:
 
     def fetch_text(self, url: str, site: SiteConfig) -> str:
         return self.fetch_bytes(url, site, accept="text/html,text/plain;q=0.9").decode("utf-8", errors="replace")
+
+    def post_json(self, url: str, payload: dict, site: SiteConfig) -> dict:
+        if not url.startswith("https://"):
+            raise SiteError(site.id, "security", "only HTTPS resources are allowed")
+        if site.rate_limit:
+            elapsed = time.monotonic() - self._last_request.get(site.id, 0.0)
+            if elapsed < site.rate_limit:
+                time.sleep(site.rate_limit - elapsed)
+        self._last_request[site.id] = time.monotonic()
+        timeout = site.timeout or self.timeout
+        retries = self.retries if site.retries is None else site.retries
+        last_error: Exception | None = None
+        for attempt in range(retries + 1):
+            request = Request(
+                url,
+                data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                headers={
+                    "User-Agent": "Lyra/0.1",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            try:
+                with urlopen(request, timeout=timeout) as response:
+                    body = response.read(self.max_response_bytes + 1)
+                if len(body) > self.max_response_bytes:
+                    raise SiteError(site.id, "response_too_large", "response exceeds configured size limit")
+                result = json.loads(body.decode("utf-8", errors="replace"))
+                if not isinstance(result, dict):
+                    raise SiteError(site.id, "parser", "JSON response must be an object")
+                return result
+            except SiteError:
+                raise
+            except HTTPError as exc:
+                last_error = exc
+                if exc.code not in {408, 425, 429, 500, 502, 503, 504}:
+                    break
+            except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+                last_error = exc
+            if attempt < retries:
+                time.sleep(min(0.25 * (2 ** attempt), 2.0))
+        if isinstance(last_error, HTTPError):
+            raise SiteError(site.id, "http", f"HTTP {last_error.code}") from last_error
+        raise SiteError(site.id, "network", "JSON request failed") from last_error
 
     def close(self) -> None:
         """Release transport resources. The HTTP transport has no persistent resources."""
@@ -174,6 +220,34 @@ class BrowserClient:
             raise
         except Exception as exc:
             raise SiteError(site.id, "browser", "browser resource request failed") from exc
+
+    def post_json(self, url: str, payload: dict, site: SiteConfig) -> dict:
+        if site.id != self.site.id:
+            raise SiteError(site.id, "configuration", "browser transport used with a different provider")
+        if not url.startswith("https://"):
+            raise SiteError(site.id, "security", "only HTTPS resources are allowed")
+        self._start()
+        timeout_ms = int((site.timeout or self.timeout) * 1000)
+        try:
+            response = self._context.request.post(
+                url,
+                data=json.dumps(payload, ensure_ascii=False),
+                headers={"Accept": "application/json", "Content-Type": "application/json"},
+                timeout=timeout_ms,
+            )
+            if not response.ok:
+                raise SiteError(site.id, "http", f"HTTP {response.status}")
+            body = response.body()
+            if len(body) > self.max_response_bytes:
+                raise SiteError(site.id, "response_too_large", "response exceeds configured size limit")
+            result = json.loads(body.decode("utf-8", errors="replace"))
+            if not isinstance(result, dict):
+                raise SiteError(site.id, "parser", "JSON response must be an object")
+            return result
+        except SiteError:
+            raise
+        except Exception as exc:
+            raise SiteError(site.id, "browser", "browser JSON request failed") from exc
 
     def close(self) -> None:
         if self._owns_context and self._context is not None:

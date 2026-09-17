@@ -3,6 +3,7 @@ from __future__ import annotations
 from .base import SiteAdapter
 from .fixture import FixtureAdapter
 from .html import HtmlAdapter
+from .twentyfourbit import TwentyFourBitAdapter
 
 
 class AdapterRegistry:
@@ -29,4 +30,5 @@ def default_registry() -> AdapterRegistry:
     registry = AdapterRegistry()
     registry.register(FixtureAdapter())
     registry.register(HtmlAdapter())
+    registry.register(TwentyFourBitAdapter())
     return registry
