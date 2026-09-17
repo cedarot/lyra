@@ -44,6 +44,8 @@ class HttpClient:
                 last_error = exc
             if attempt < retries:
                 time.sleep(min(0.25 * (2 ** attempt), 2.0))
+        if isinstance(last_error, HTTPError):
+            raise SiteError(site.id, "http", f"HTTP {last_error.code}") from last_error
         raise SiteError(site.id, "network", "request failed") from last_error
 
     def fetch_text(self, url: str, site: SiteConfig) -> str:

@@ -43,6 +43,13 @@ def atomic_write(path: Path, data: bytes, overwrite: bool) -> None:
                 pass
 
 
+def save_audio_bytes(data: bytes, output_dir: str, filename: str, overwrite: bool = False) -> Path:
+    path = Path(output_dir).expanduser() / filename
+    _target(path, overwrite)
+    atomic_write(path, data, overwrite=True)
+    return path
+
+
 def write_search_cache(output_dir: str, report: SearchReport) -> Path:
     cache_path = Path(output_dir).expanduser() / ".lyra" / "search-results.json"
     payload = {

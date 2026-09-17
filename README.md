@@ -57,6 +57,16 @@ For sites with non-standard HTML, override individual defaults such as `--search
 
 Lyra does not bypass DRM, paywalls, CAPTCHA, login restrictions, or other access controls. Users are responsible for complying with the target site's terms, copyright rules, and applicable law. Credentials, cookies, and access tokens are not stored by the MVP.
 
+## Direct audio URLs
+
+When a site provides an authorized, currently valid audio resource URL, download it without HTML parsing:
+
+```sh
+lyra download-url 'https://cdn.example/audio/song.flac?signature=...' --output ./downloads
+```
+
+Lyra preserves the URL extension, supports `--filename`, `--overwrite`, and `--json`, and reports HTTP status failures such as 403 or 404. Signed URLs may expire quickly; Lyra does not bypass or refresh access-control tokens.
+
 ## Adapter development
 
 Adapters implement `search`, `get_details`, `get_lyrics`, and `get_audio` behind `lyra.adapters.SiteAdapter`. Keep HTML parsing inside the adapter, add offline fixtures for normal and changed page structures, and return the shared domain models so the CLI and application layer remain site-agnostic.

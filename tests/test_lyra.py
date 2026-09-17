@@ -7,11 +7,12 @@ import pytest
 
 from lyra.adapters.registry import default_registry
 from lyra.adapters.html import HtmlAdapter
-from lyra.application import DownloadService, SearchService
+from lyra.application import DirectDownloadService, DownloadService, SearchService
+import lyra.application as application
 from lyra.cli import main
 from lyra.config import load_config
 from lyra.errors import ConfigError
-from lyra.models import SiteConfig
+from lyra.models import AppConfig, SiteConfig
 from lyra.storage import safe_component
 
 
@@ -165,3 +166,36 @@ def test_provider_list_outputs_configured_sites(capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload[0]["id"] == "fixture"
     assert payload[0]["adapter"] == "fixture"
+
+
+class FakeDirectHttpClient:
+    def __init__(self, *args):
+        pass
+
+    def fetch_bytes(self, url, site, *, accept):
+        assert url.startswith("https://cdn.example/")
+        assert accept.startswith("audio/")
+        return b"FLAC DATA"
+
+
+def test_direct_download_preserves_extension_and_supports_custom_filename(tmp_path, monkeypatch):
+    monkeypatch.setattr(application, "HttpClient", FakeDirectHttpClient)
+    service = DirectDownloadService(AppConfig(output_dir=str(tmp_path)))
+
+    result = service.download("https://cdn.example/path/song.flac?signature=temporary", filename="十年人间.flac")
+
+    assert Path(result.path).name == "十年人间.flac"
+    assert Path(result.path).read_bytes() == b"FLAC DATA"
+    assert result.bytes_written == 9
+
+
+def test_direct_download_cli_works_without_config_file(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(application, "HttpClient", FakeDirectHttpClient)
+    result = main([
+        "download-url", "https://cdn.example/path/song.flac?signature=temporary",
+        "--config", str(tmp_path / "missing.toml"), "--output", str(tmp_path), "--json",
+    ])
+
+    assert result == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["bytes"] == 9

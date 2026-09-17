@@ -103,6 +103,13 @@ class DownloadResult:
 
 
 @dataclass(frozen=True)
+class DirectDownloadResult:
+    url: str
+    path: str
+    bytes_written: int
+
+
+@dataclass(frozen=True)
 class ProviderTestResult:
     provider_id: str
     query: str

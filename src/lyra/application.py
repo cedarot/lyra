@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import re
+from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 from .adapters.registry import AdapterRegistry
 from .errors import LyraError, SiteError
 from .http import HttpClient
-from .models import AppConfig, DownloadResult, ProviderTestResult, SearchReport, SiteFailure, SongCandidate
-from .storage import save_download
+from .models import AppConfig, DirectDownloadResult, DownloadResult, ProviderTestResult, SearchReport, SiteFailure, SongCandidate, SiteConfig
+from .storage import safe_component, save_audio_bytes, save_download
 
 
 @dataclass
@@ -56,6 +59,38 @@ class DownloadService:
             output_dir or self.config.output_dir,
             overwrite=overwrite,
         )
+
+
+@dataclass
+class DirectDownloadService:
+    config: AppConfig
+
+    def download(
+        self,
+        url: str,
+        output_dir: str | None = None,
+        filename: str | None = None,
+        overwrite: bool = False,
+    ) -> DirectDownloadResult:
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.netloc:
+            raise LyraError("direct download URL must be an HTTPS URL")
+        site = SiteConfig(id="direct-url", name="Direct URL", adapter="direct", base_url=f"https://{parsed.netloc}")
+        data = HttpClient(self.config.timeout, self.config.retries, self.config.max_response_bytes).fetch_bytes(
+            url, site, accept="audio/*,application/octet-stream"
+        )
+        extension = self._extension(parsed.path)
+        target_name = filename or Path(unquote(parsed.path)).name or f"audio{extension}"
+        target_name = safe_component(target_name, f"audio{extension}")
+        if "." not in target_name.rsplit("/", 1)[-1]:
+            target_name = f"{target_name}{extension}"
+        path = save_audio_bytes(data, output_dir or self.config.output_dir, target_name, overwrite)
+        return DirectDownloadResult(url=url, path=str(path), bytes_written=len(data))
+
+    @staticmethod
+    def _extension(path: str) -> str:
+        suffix = Path(unquote(path)).suffix
+        return suffix if re.fullmatch(r"\.[A-Za-z0-9]{1,8}", suffix) else ".audio"
 
 
 @dataclass

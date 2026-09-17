@@ -8,10 +8,10 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 from .adapters.registry import default_registry
-from .application import DownloadService, ProviderTestService, SearchService
+from .application import DirectDownloadService, DownloadService, ProviderTestService, SearchService
 from .config import add_provider, delete_provider, default_config_path, init_config, load_config
 from .errors import ConfigError, LyraError, NoResultsError, SelectionError
-from .models import SearchReport, SongCandidate
+from .models import AppConfig, SearchReport, SongCandidate
 from .storage import read_search_cache, write_search_cache
 
 EXIT_OK = 0
@@ -88,12 +88,26 @@ def _parser() -> argparse.ArgumentParser:
     download.add_argument("--output", type=str)
     download.add_argument("--overwrite", action="store_true")
     download.add_argument("--json", action="store_true", dest="as_json")
+
+    direct = subparsers.add_parser("download-url", help="download an authorized HTTPS audio URL directly")
+    direct.add_argument("url")
+    direct.add_argument("--config", type=Path, default=default_config_path())
+    direct.add_argument("--output", type=str)
+    direct.add_argument("--filename", type=str)
+    direct.add_argument("--overwrite", action="store_true")
+    direct.add_argument("--json", action="store_true", dest="as_json")
     return parser
 
 
 def _load(path: Path):
     registry = default_registry()
     return load_config(path, registry.ids), registry
+
+
+def _load_download_config(path: Path) -> AppConfig:
+    if path.exists():
+        return _load(path)[0]
+    return AppConfig(output_dir="./downloads")
 
 
 def _print_report(report: SearchReport, as_json: bool) -> None:
@@ -224,6 +238,16 @@ def _run(args: argparse.Namespace) -> int:
     if args.command == "config":
         _load(args.config)
         print(f"Configuration is valid: {args.config}")
+        return EXIT_OK
+
+    if args.command == "download-url":
+        result = DirectDownloadService(_load_download_config(args.config)).download(
+            args.url, args.output, args.filename, args.overwrite
+        )
+        if args.as_json:
+            print(json.dumps({"url": result.url, "path": result.path, "bytes": result.bytes_written}, ensure_ascii=False, indent=2))
+        else:
+            print(f"Downloaded {result.bytes_written} bytes to {result.path}")
         return EXIT_OK
 
     if args.command == "provider":
