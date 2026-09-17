@@ -7,7 +7,7 @@ import pytest
 
 from lyra.adapters.registry import default_registry
 from lyra.adapters.html import HtmlAdapter
-from lyra.application import DirectDownloadService, DownloadService, SearchService
+from lyra.application import DirectDownloadService, DownloadService, ResolveService, SearchService
 import lyra.application as application
 from lyra.cli import main
 from lyra.config import load_config
@@ -125,8 +125,13 @@ class FakeHttpClient:
         return """<div id='lyrics'>[00:01]hello</div><audio id='audio' src='/audio/new.mp3'></audio>"""
 
 
-def test_html_adapter_uses_configured_selectors():
-    site = SiteConfig(
+class FakeResolveHttpClient(FakeHttpClient):
+    def __init__(self, *args):
+        pass
+
+
+def html_test_site() -> SiteConfig:
+    return SiteConfig(
         id="example", name="Example", adapter="html", base_url="https://example.test",
         options={
             "search_path": "/search?q={query}", "result_selector": "article.song", "title_selector": ".title",
@@ -134,6 +139,10 @@ def test_html_adapter_uses_configured_selectors():
             "audio_selector": "audio", "audio_attr": "src", "audio_extension": "mp3",
         },
     )
+
+
+def test_html_adapter_uses_configured_selectors():
+    site = html_test_site()
     adapter = HtmlAdapter()
     candidates = adapter.search("new song", site, FakeHttpClient())
     details = adapter.get_details(candidates[0], site, FakeHttpClient())
@@ -141,6 +150,30 @@ def test_html_adapter_uses_configured_selectors():
     assert candidates[0].details_url == "https://example.test/song/1"
     assert details.lyrics.content == "[00:01]hello\n"
     assert details.audio.url == "https://example.test/audio/new.mp3"
+
+
+def test_resolve_returns_direct_audio_url(monkeypatch):
+    monkeypatch.setattr(application, "HttpClient", FakeResolveHttpClient)
+    config = AppConfig(output_dir="./downloads", sites=(html_test_site(),))
+
+    result = ResolveService(config, default_registry()).resolve("new song")
+
+    assert result.url == "https://example.test/audio/new.mp3"
+    assert result.candidate.title == "New Song"
+
+
+def test_download_query_auto_selects_top_result(tmp_path, capsys):
+    config_path = tmp_path / "config.toml"
+    output_dir = tmp_path / "downloads"
+    fixture_path = (ROOT / "fixtures/site").resolve()
+    config_path.write_text(
+        f"""[settings]\noutput_dir = \"{output_dir}\"\n\n[[sites]]\nid = \"fixture\"\nname = \"Fixture Site\"\nadapter = \"fixture\"\nfixture_path = \"{fixture_path}\"\n""",
+        encoding="utf-8",
+    )
+
+    assert main(["download", "fixture song", "--config", str(config_path), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert Path(payload["audio_path"]).parent == output_dir
 
 
 def test_provider_test_reports_audio_download(capsys):

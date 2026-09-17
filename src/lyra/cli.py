@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 from .adapters.registry import default_registry
-from .application import DirectDownloadService, DownloadService, ProviderTestService, SearchService
+from .application import DirectDownloadService, DownloadService, ProviderTestService, ResolveService, SearchService
 from .config import add_provider, delete_provider, default_config_path, init_config, load_config
 from .errors import ConfigError, LyraError, NoResultsError, SelectionError
 from .models import AppConfig, SearchReport, SongCandidate
@@ -81,7 +81,13 @@ def _parser() -> argparse.ArgumentParser:
     search.add_argument("--json", action="store_true", dest="as_json")
     search.add_argument("--verbose", action="store_true")
 
-    download = subparsers.add_parser("download", help="download the selected search result")
+    resolve = subparsers.add_parser("resolve", help="resolve a song query to a direct audio URL")
+    resolve.add_argument("query")
+    resolve.add_argument("--config", type=Path, default=default_config_path())
+    resolve.add_argument("--result", type=int, default=1, help="one-based result index")
+    resolve.add_argument("--json", action="store_true", dest="as_json")
+
+    download = subparsers.add_parser("download", help="search and download a song, or download a cached result")
     download.add_argument("query", nargs="?")
     download.add_argument("--config", type=Path, default=default_config_path())
     download.add_argument("--result", type=int, help="one-based cached result index")
@@ -216,11 +222,13 @@ def _print_provider_list(config, as_json: bool) -> int:
     return EXIT_OK
 
 
-def _select(candidates: list[SongCandidate], requested: int | None) -> SongCandidate:
+def _select(candidates: list[SongCandidate], requested: int | None, auto_select: bool = False) -> SongCandidate:
     if requested is not None:
         if requested < 1 or requested > len(candidates):
             raise SelectionError(f"result must be between 1 and {len(candidates)}")
         return candidates[requested - 1]
+    if auto_select:
+        return candidates[0]
     if not sys.stdin.isatty():
         raise SelectionError("non-interactive download requires --result")
     try:
@@ -248,6 +256,19 @@ def _run(args: argparse.Namespace) -> int:
             print(json.dumps({"url": result.url, "path": result.path, "bytes": result.bytes_written}, ensure_ascii=False, indent=2))
         else:
             print(f"Downloaded {result.bytes_written} bytes to {result.path}")
+        return EXIT_OK
+
+    if args.command == "resolve":
+        config, registry = _load(args.config)
+        result = ResolveService(config, registry).resolve(args.query, args.result)
+        if args.as_json:
+            print(json.dumps({
+                "url": result.url,
+                "content_type": result.content_type,
+                "candidate": result.candidate.to_dict(),
+            }, ensure_ascii=False, indent=2))
+        else:
+            print(result.url)
         return EXIT_OK
 
     if args.command == "provider":
@@ -309,7 +330,7 @@ def _run(args: argparse.Namespace) -> int:
         candidates = report.candidates
     else:
         candidates = read_search_cache(config.output_dir)
-    candidate = _select(candidates, args.result)
+    candidate = _select(candidates, args.result, auto_select=bool(args.query))
     result = DownloadService(config, registry).download(candidate, args.output, args.overwrite)
     payload = {
         "lyrics_path": result.lyrics_path,

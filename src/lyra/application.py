@@ -8,7 +8,7 @@ from urllib.parse import unquote, urlparse
 from .adapters.registry import AdapterRegistry
 from .errors import LyraError, SiteError
 from .http import HttpClient
-from .models import AppConfig, DirectDownloadResult, DownloadResult, ProviderTestResult, SearchReport, SiteFailure, SongCandidate, SiteConfig
+from .models import AppConfig, DirectDownloadResult, DownloadResult, ProviderTestResult, ResolvedAudioResult, SearchReport, SiteFailure, SongCandidate, SiteConfig
 from .storage import safe_component, save_audio_bytes, save_download
 
 
@@ -100,6 +100,32 @@ class DirectDownloadService:
     def _extension(path: str) -> str:
         suffix = Path(unquote(path)).suffix
         return suffix if re.fullmatch(r"\.[A-Za-z0-9]{1,8}", suffix) else ".audio"
+
+
+@dataclass
+class ResolveService:
+    config: AppConfig
+    registry: AdapterRegistry
+
+    def resolve(self, query: str, result_index: int = 1) -> ResolvedAudioResult:
+        report = SearchService(self.config, self.registry).search(query)
+        if not report.candidates:
+            raise LyraError(f"no results found for query: {query}")
+        if result_index < 1 or result_index > len(report.candidates):
+            raise LyraError(f"result must be between 1 and {len(report.candidates)}")
+        candidate = report.candidates[result_index - 1]
+        site = next((site for site in self.config.sites if site.id == candidate.site_id and site.enabled), None)
+        if site is None:
+            raise LyraError(f"site is not enabled: {candidate.site_id}")
+        client = HttpClient(self.config.timeout, self.config.retries, self.config.max_response_bytes)
+        adapter = self.registry.get(site.adapter)
+        details = adapter.get_details(candidate, site, client)
+        audio = adapter.get_audio(details, site, client)
+        if audio is None:
+            raise LyraError(f"provider has no audio resource: {candidate.site_id}")
+        if not audio.url:
+            raise LyraError(f"provider has no direct audio URL: {candidate.site_id}")
+        return ResolvedAudioResult(candidate=candidate, url=normalize_direct_url(audio.url), content_type=audio.content_type)
 
 
 @dataclass

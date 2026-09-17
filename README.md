@@ -19,6 +19,7 @@ lyra init config
 lyra config validate --config tests/fixtures/valid-config.toml
 lyra search "fixture song" --config tests/fixtures/valid-config.toml --json
 lyra download --config tests/fixtures/valid-config.toml --result 1
+lyra download "fixture song" --config tests/fixtures/valid-config.toml
 ```
 
 `lyra init config` creates a starter TOML file in the platform configuration directory. Use `--config PATH` to choose a location and `--force` to replace an existing file. The generated file contains a commented fixture adapter example; enable and configure lawful site adapters before searching. The fixture adapter is intentionally offline and demonstrates the adapter contract. Live adapters are only added for sites whose terms and access rules permit the requested automation.
@@ -42,6 +43,8 @@ fixture_path = "tests/fixtures/site"
 ```
 
 `search` writes a short-lived selection cache under `<output_dir>/.lyra/search-results.json`, which lets `download --result N` select the result from the most recent search. Both download commands use `settings.output_dir` by default; `--output DIR` is optional and means “save inside this directory”. Use `--json` for scripts. Existing output files are not overwritten unless `--overwrite` is supplied.
+
+`resolve "歌曲名"` searches the enabled providers, resolves the selected result's direct audio URL, and prints it. `download "歌曲名"` performs the same search and automatically downloads the highest-ranked result; use `--result N` to choose a different result.
 
 ## Website providers
 

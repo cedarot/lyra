@@ -110,6 +110,13 @@ class DirectDownloadResult:
 
 
 @dataclass(frozen=True)
+class ResolvedAudioResult:
+    candidate: SongCandidate
+    url: str
+    content_type: str
+
+
+@dataclass(frozen=True)
 class ProviderTestResult:
     provider_id: str
     query: str
