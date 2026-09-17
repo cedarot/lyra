@@ -1,30 +1,260 @@
 # Lyra
 
-Lyra is a Python command-line tool for searching configured music-site adapters and downloading authorized lyrics and audio resources.
+Lyra is a Python command-line tool for searching configured music websites and downloading resources that you are authorized to access. It provides one workflow for:
+
+- searching one or more configured providers;
+- selecting a normalized song result;
+- resolving a provider's current direct audio URL;
+- saving available lyrics, audio, and metadata with safe filenames.
+
+Site-specific HTML or API behavior stays inside adapters. Network failures, parser failures, and unavailable resources are reported per provider instead of silently producing incomplete files.
 
 Implementation is tracked in [REQ-001](https://github.com/cedarot/lyra/issues/1).
 
-## Install
+## Requirements
 
-Lyra supports Python 3.11+ and has no runtime dependencies in the MVP:
+- Python 3.11 or newer;
+- `beautifulsoup4` for the standard runtime;
+- optional Playwright and Chromium for browser-backed providers such as 24bit;
+- optional pytest for development and verification.
+
+Lyra does not require an account and does not store passwords, cookies, or access tokens.
+
+## Installation
+
+Create a virtual environment, activate it, and install Lyra in editable mode:
 
 ```sh
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
-## Quick start
+On Windows PowerShell, activate the environment with:
 
-```sh
-lyra init config
-lyra config validate --config tests/fixtures/valid-config.toml
-lyra search "fixture song" --config tests/fixtures/valid-config.toml --provider fixture --json
-lyra download --config tests/fixtures/valid-config.toml --result 1
-lyra download "fixture song" --config tests/fixtures/valid-config.toml
+```powershell
+.\.venv\Scripts\Activate.ps1
 ```
 
-`lyra init config` creates a starter TOML file in the platform configuration directory. Use `--config PATH` to choose a location and `--force` to replace an existing file. The generated file contains a commented fixture adapter example; enable and configure lawful site adapters before searching. The fixture adapter is intentionally offline and demonstrates the adapter contract. Live adapters are only added for sites whose terms and access rules permit the requested automation.
+Install browser support only when you need a JavaScript-rendered provider:
 
-## Configuration
+```sh
+python -m pip install -e ".[browser]"
+python -m playwright install chromium
+```
+
+Install the test dependencies for development:
+
+```sh
+python -m pip install -e ".[test]"
+```
+
+Check the installation:
+
+```sh
+lyra --help
+```
+
+You can use `python -m lyra` instead of `lyra` in every example.
+
+## First-time setup
+
+Create a configuration file. The default location is platform-dependent; using an explicit path makes scripts and projects easier to reproduce:
+
+```sh
+lyra init config --config ./lyra.toml
+```
+
+The generated file contains the default output directory, timeout, retry count, and response-size limit. It does not contain a provider yet, so add at least one provider before validating it. Provider commands update this file without storing credentials.
+
+## 24bit usage
+
+Add the dedicated 24bit adapter:
+
+```sh
+lyra provider add https://www.24bit.net --config ./lyra.toml
+```
+
+This automatically configures:
+
+- provider ID `24bit`;
+- browser access;
+- the fixed 24bit search API;
+- 96 kHz audio by default.
+
+Search and inspect results:
+
+```sh
+lyra provider list --config ./lyra.toml
+lyra search "Be Thou My Vision" --provider 24bit --config ./lyra.toml
+```
+
+Download the first result into `./downloads`:
+
+```sh
+lyra download --provider 24bit "Be Thou My Vision" \
+  --result 1 \
+  --config ./lyra.toml \
+  --output ./downloads
+```
+
+Use `--json` for scripts:
+
+```sh
+lyra search "Be Thou My Vision" --provider 24bit --config ./lyra.toml --json
+lyra download --provider 24bit "Be Thou My Vision" --result 1 \
+  --config ./lyra.toml --output ./downloads --json
+```
+
+To use 192 kHz instead, replace the provider configuration with:
+
+```sh
+lyra provider add https://www.24bit.net --quality 192 \
+  --config ./lyra.toml --force
+```
+
+### 24bit access limits
+
+24bit may return a page saying that today's access quota has been exhausted. The provider does not expose a supported registration or login flow for lifting this limit. This is a provider-side daily quota, not a Lyra configuration error.
+
+When this happens:
+
+- wait until the provider resets its quota;
+- use another authorized provider or an authorized direct audio URL;
+- do not repeatedly retry the same request.
+
+`--browser-visible` is only for normal browser interaction or Cloudflare/manual verification. It does not remove 24bit's daily quota and does not bypass access controls.
+
+## Browser-backed providers
+
+For a provider that requires JavaScript, add it in browser mode:
+
+```sh
+lyra provider add https://music.example \
+  --access-mode browser \
+  --config ./lyra.toml
+```
+
+Browser mode is headless by default. Use a visible browser only when the provider requires a human to complete an ordinary verification step:
+
+```sh
+lyra provider add https://music.example \
+  --access-mode browser \
+  --browser-visible \
+  --config ./lyra.toml \
+  --force
+```
+
+Lyra can also connect to a user-launched Chrome session through a credential-free CDP endpoint:
+
+```sh
+lyra provider add https://music.example \
+  --access-mode browser \
+  --browser-endpoint http://127.0.0.1:9222 \
+  --config ./lyra.toml \
+  --force
+```
+
+Lyra does not close an externally managed browser. It does not automate CAPTCHA, Cloudflare bypasses, login restrictions, or other access-control workarounds.
+
+## Generic website providers
+
+For a site with conventional HTML selectors, Lyra can derive a provider configuration from its HTTPS URL:
+
+```sh
+lyra provider add https://music.example --config ./lyra.toml
+```
+
+Override selectors when the site uses different markup:
+
+```sh
+lyra provider add https://music.example \
+  --search-path "/search?q={query}" \
+  --result-selector "article.track" \
+  --title-selector ".track-title" \
+  --details-selector "a.track-link" \
+  --audio-selector "audio source" \
+  --audio-attr src \
+  --config ./lyra.toml
+```
+
+Manage providers with:
+
+```sh
+lyra provider list --config ./lyra.toml
+lyra provider list --config ./lyra.toml --json
+lyra provider test PROVIDER_ID --query song title --config ./lyra.toml
+lyra provider test PROVIDER_ID --query song title --audio --config ./lyra.toml
+lyra provider delete PROVIDER_ID --config ./lyra.toml
+```
+
+Provider definitions contain URLs, selectors, and request settings only. Do not put passwords, cookies, authorization headers, or tokens in the TOML file.
+
+## Search, resolve, and download
+
+Search all enabled providers:
+
+```sh
+lyra search "song title" --config ./lyra.toml
+```
+
+Search one provider and save machine-readable output:
+
+```sh
+lyra search "song title" --provider PROVIDER_ID \
+  --config ./lyra.toml --json
+```
+
+Resolve a selected result to the provider's current direct audio URL:
+
+```sh
+lyra resolve "song title" --config ./lyra.toml
+lyra resolve "song title" --result 2 --config ./lyra.toml --json
+```
+
+Download a song directly from a query:
+
+```sh
+lyra download "song title" --result 1 \
+  --config ./lyra.toml --output ./downloads
+```
+
+After a search, Lyra stores a short-lived result cache under `<output_dir>/.lyra/search-results.json`. You can download a cached result without searching again:
+
+```sh
+lyra download --result 1 --config ./lyra.toml --output ./downloads
+```
+
+Use `--provider PROVIDER_ID` to restrict a search or cached-result selection. Existing files are not overwritten unless `--overwrite` is supplied.
+
+Lyrics and audio are saved separately when the provider exposes them. If only one resource is available, Lyra reports a partial result instead of claiming full success. Downloads use temporary files and atomic finalization, so interrupted transfers do not appear as completed files.
+
+## Direct audio URLs
+
+When you already have a currently valid, authorized HTTPS audio URL, download it without provider parsing:
+
+```sh
+lyra download-url \
+  'https://cdn.example/audio/song.flac?signature=...' \
+  --config ./lyra.toml \
+  --output ./downloads
+```
+
+Use `--filename` to choose a safe output filename:
+
+```sh
+lyra download-url 'https://cdn.example/audio/song.flac?signature=...' \
+  --filename 'Artist - Song.flac' \
+  --config ./lyra.toml \
+  --output ./downloads
+```
+
+The command preserves common audio extensions, supports `--overwrite` and `--json`, and accepts shell-escaped query delimiters such as `\?`, `\=`, and `\&`. Signed URLs may expire quickly; Lyra does not refresh, forge, or bypass signed access tokens.
+
+## Configuration reference
+
+A minimal configuration looks like this:
 
 ```toml
 [settings]
@@ -34,59 +264,61 @@ retries = 1
 max_response_bytes = 10485760
 
 [[sites]]
-id = "fixture"
-name = "Fixture Site"
-adapter = "fixture"
+id = "24bit"
+name = "24bit"
+adapter = "24bit"
+access_mode = "browser"
+base_url = "https://www.24bit.net"
 enabled = true
 priority = 10
-fixture_path = "tests/fixtures/site"
+quality = "96"
 ```
 
-`search` writes a short-lived selection cache under `<output_dir>/.lyra/search-results.json`, which lets `download --result N` select the result from the most recent search. Pass `--provider PROVIDER_ID` to `search` to query only one enabled provider. The same option on `download` limits a new query to that provider, or filters cached results when no query is supplied. Both download commands use `settings.output_dir` by default; `--output DIR` is optional and means “save inside this directory”. Use `--json` for scripts. Existing output files are not overwritten unless `--overwrite` is supplied.
+Important provider fields:
 
-Providers use `access_mode = "http"` by default. For a provider that requires JavaScript, configure `access_mode = "browser"` (install with `python -m pip install -e '.[browser]'` and then `python -m playwright install chromium`). Browser mode launches an ephemeral headless browser automatically, keeps its session only for the current Lyra command, and runs silently without requiring a pre-opened browser. Use `--browser-visible` only when a provider requires manual interaction; `--browser-headless` is also accepted explicitly. It does not persist cookies or automate CAPTCHA/access-control bypasses.
+- `id`: stable provider identifier used by `--provider`;
+- `adapter`: registered adapter name, such as `24bit`, `html`, or `fixture`;
+- `access_mode`: `http` or `browser`;
+- `enabled`: whether the provider participates in searches;
+- `priority`: higher-priority providers sort first;
+- `timeout`, `retries`, and `rate_limit`: request controls;
+- `quality`: `96` or `192` for the 24bit adapter.
 
-If a provider repeatedly challenges a Playwright-launched browser, Lyra can manage a background Chrome profile automatically. It first reuses a browser already available at the conventional local endpoint `http://127.0.0.1:9222`; otherwise the 24bit adapter starts Chrome with a dedicated profile and configures the endpoint internally. The managed browser remains available after a command so a later `download` can reuse its session. `--browser-endpoint` is only needed for a different endpoint. Lyra connects to an external browser without closing it; JSON-only requests do not create a blank tab, and any Lyra-created page is opened lazily and closed after use. The browser owns its session and the user remains responsible for completing site verification.
-
-If 24bit reports that today's access quota is exhausted, this is a provider-side limit. The provider does not expose a supported registration or login flow, so Lyra waits for the quota to reset rather than attempting to bypass it; use another authorized provider if immediate access is required.
-
-`resolve "歌曲名"` searches the enabled providers, resolves the selected result's direct audio URL, and prints it. `download "歌曲名"` performs the same search and automatically downloads the highest-ranked result; use `--result N` to choose a different result.
-
-## Website providers
-
-Add a new website without specifying an ID, name, base URL, or selectors. Lyra derives provider metadata from the URL and applies generic HTML selectors:
+Validate configuration before running network commands:
 
 ```sh
-lyra provider add https://music.example
+lyra config validate --config ./lyra.toml
 ```
-
-For sites with non-standard HTML, override individual defaults such as `--search-path`, `--result-selector`, `--title-selector`, or `--audio-selector`. Add a browser-backed provider with `lyra provider add https://music.example --access-mode browser`. List providers with `lyra provider list` or `lyra provider list --json`; delete one with `lyra provider delete PROVIDER_ID`. Test a provider with `lyra provider test PROVIDER_ID --query song title --audio`. The provider ID is required and the query accepts multiple unquoted words. `--audio` downloads the resource into memory and reports the byte count without saving it. Provider definitions contain selectors and URLs only; do not add credentials, cookies, or tokens.
-
-24bit has a dedicated adapter because its search is a JavaScript JSON request rather than a stable search URL. Lyra recognizes the 24bit hostname and defaults to the dedicated browser-backed adapter, headless access, and 96 kHz quality. Configure it with one command:
-
-```sh
-lyra provider add https://www.24bit.net
-```
-
-The adapter posts to `/api/player/searchOnlineMusicOne` with `keyword` and `page`, then resolves each result through `/music/c/{id}` for 24-bit 96 kHz or `/music/a/{id}` for 24-bit 192 kHz. It reads the currently signed audio URL from the detail page's `audio source[src]`; signed URLs are intentionally not persisted because they expire. Future searches use these fixed routes directly and do not perform page or endpoint discovery. Use `--quality 192` to select the 192 kHz route. Use `--browser-endpoint` only when deliberately reusing a user-launched Chrome session.
 
 ## Safety and access boundaries
 
-Lyra does not bypass DRM, paywalls, CAPTCHA, login restrictions, or other access controls. Users are responsible for complying with the target site's terms, copyright rules, and applicable law. Credentials, cookies, and access tokens are not stored by the MVP.
+Lyra is intended for content and resources that you are authorized to access. It does not:
 
-## Direct audio URLs
+- bypass DRM, paywalls, CAPTCHA, Cloudflare, login restrictions, or other access controls;
+- store passwords, cookies, authorization headers, or access tokens;
+- crawl entire sites or provide a streaming service;
+- overwrite existing files unless `--overwrite` is explicit.
 
-When a site provides an authorized, currently valid audio resource URL, download it without HTML parsing:
+You are responsible for complying with each provider's terms, copyright rules, and applicable law.
+
+## Development and verification
+
+Install test dependencies and run the complete test suite:
 
 ```sh
-lyra download-url 'https://cdn.example/audio/song.flac?signature=...'
-lyra download-url 'https://cdn.example/audio/song.flac?signature=...' --output ./downloads
+python -m pip install -e ".[test]"
+python -m pytest -q
 ```
 
-`--output` is optional: without it, Lyra uses `settings.output_dir` from the selected configuration. When supplied, it is treated as a directory and Lyra saves the file inside it using the filename from the URL path. `--filename` can override that name. Lyra preserves the URL extension, supports `--overwrite` and `--json`, and reports HTTP status failures such as 403 or 404. Signed URLs may expire quickly; Lyra does not bypass or refresh access-control tokens.
+The repository also supports these smoke checks:
 
-Lyra also accepts common shell-escaped query delimiters copied into the argument, such as `\?`, `\=`, and `\&`, and normalizes them before making the request.
+```sh
+python -m lyra --help
+python -m lyra config validate --config tests/fixtures/valid-config.toml
+python -m lyra search "fixture song" \
+  --config tests/fixtures/valid-config.toml --provider fixture --json
+python -m lyra download --result 1 \
+  --config tests/fixtures/valid-config.toml --output /tmp/lyra-test-output
+```
 
-## Adapter development
-
-Adapters implement `search`, `get_details`, `get_lyrics`, and `get_audio` behind `lyra.adapters.SiteAdapter`. Keep HTML parsing inside the adapter, add offline fixtures for normal and changed page structures, and return the shared domain models so the CLI and application layer remain site-agnostic.
+Adapters implement `search`, `get_details`, `get_lyrics`, and `get_audio` behind `lyra.adapters.SiteAdapter`. Keep parsing inside the adapter, add offline fixtures for normal and changed page structures, and return the shared domain models so the CLI and application layer remain site-agnostic.
