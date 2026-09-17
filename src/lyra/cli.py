@@ -39,7 +39,7 @@ def _parser() -> argparse.ArgumentParser:
     provider_add = provider_subparsers.add_parser("add", help="add a configured website provider")
     provider_add.add_argument("website_url", nargs="?", help="HTTPS website URL used to derive provider defaults")
     provider_add.add_argument("--config", type=Path, default=default_config_path())
-    provider_add.add_argument("--adapter", choices=sorted(default_registry().ids), default="html", help="provider adapter")
+    provider_add.add_argument("--adapter", choices=sorted(default_registry().ids), help="provider adapter; inferred for known sites")
     provider_add.add_argument("--id", dest="provider_id", help="override the ID derived from the URL")
     provider_add.add_argument("--name", help="override the name derived from the URL")
     provider_add.add_argument("--base-url", help="override the base URL derived from the URL")
@@ -58,7 +58,7 @@ def _parser() -> argparse.ArgumentParser:
     provider_add.add_argument("--audio-extension", default="mp3")
     provider_add.add_argument("--priority", type=int, default=0)
     provider_add.add_argument("--rate-limit", type=float, default=0.0, help="seconds between requests")
-    provider_add.add_argument("--access-mode", choices=("http", "browser"), default="http", help="provider access transport")
+    provider_add.add_argument("--access-mode", choices=("http", "browser"), help="provider access transport; inferred for known sites")
     browser_visibility = provider_add.add_mutually_exclusive_group()
     browser_visibility.add_argument("--browser-headless", action="store_true", help="run browser access without a visible window (default)")
     browser_visibility.add_argument("--browser-visible", action="store_true", help="open a visible browser for manual interaction")
@@ -287,12 +287,15 @@ def _run(args: argparse.Namespace) -> int:
             if not website_url:
                 raise ConfigError("provide a website URL")
             default_id, default_name, default_base_url, default_options = _provider_defaults(website_url)
+            hostname = urlparse(default_base_url).hostname or ""
+            adapter = args.adapter or ("24bit" if hostname.lower().removeprefix("www.") == "24bit.net" else "html")
+            access_mode = args.access_mode or ("browser" if adapter == "24bit" else "http")
             provider_id = args.provider_id or default_id
             provider_name = args.name or default_name
             base_url = args.base_url or default_base_url
             if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", provider_id):
                 raise ConfigError("provider id must contain lowercase letters, digits, '-' or '_'")
-            if args.adapter == "html" and "{query}" not in (args.search_path or default_options["search_path"]):
+            if adapter == "html" and "{query}" not in (args.search_path or default_options["search_path"]):
                 raise ConfigError("search path must contain {query}")
             parsed_base_url = urlparse(base_url)
             if parsed_base_url.scheme != "https" or not parsed_base_url.netloc:
@@ -301,25 +304,25 @@ def _run(args: argparse.Namespace) -> int:
                 raise ConfigError("rate limit must be non-negative")
             if args.adapter != "24bit" and args.quality != "96":
                 raise ConfigError("--quality requires --adapter 24bit")
-            if (args.browser_headless or args.browser_visible) and args.access_mode != "browser":
+            if (args.browser_headless or args.browser_visible) and access_mode != "browser":
                 raise ConfigError("browser visibility flags require --access-mode browser")
             if args.browser_endpoint:
                 endpoint = urlparse(args.browser_endpoint)
-                if args.access_mode != "browser":
+                if access_mode != "browser":
                     raise ConfigError("--browser-endpoint requires --access-mode browser")
                 if endpoint.scheme not in {"http", "https", "ws", "wss"} or not endpoint.netloc or endpoint.username or endpoint.password:
                     raise ConfigError("--browser-endpoint must be a credential-free CDP URL")
             provider = {
                 "id": provider_id,
                 "name": provider_name,
-                "adapter": args.adapter,
-                "access_mode": args.access_mode,
+                "adapter": adapter,
+                "access_mode": access_mode,
                 "base_url": base_url,
                 "enabled": True,
                 "priority": args.priority,
                 "rate_limit": args.rate_limit,
             }
-            if args.adapter == "html":
+            if adapter == "html":
                 provider.update(default_options)
                 provider.update(_provider_options(args))
             else:

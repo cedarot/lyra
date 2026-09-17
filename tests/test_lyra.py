@@ -158,6 +158,23 @@ def test_provider_add_supports_browser_access_mode(tmp_path, capsys):
     assert config.sites[0].options["browser_endpoint"] == "http://127.0.0.1:9222"
 
 
+def test_provider_add_infers_24bit_defaults(tmp_path, capsys):
+    config_path = tmp_path / "config.toml"
+    assert main(["init", "config", "--config", str(config_path)]) == 0
+    capsys.readouterr()
+
+    assert main(["provider", "add", "https://www.24bit.net", "--config", str(config_path)]) == 0
+    capsys.readouterr()
+
+    config = load_config(config_path, default_registry().ids)
+    provider = config.sites[0]
+    assert provider.id == "24bit"
+    assert provider.adapter == "24bit"
+    assert provider.access_mode == "browser"
+    assert provider.options["quality"] == "96"
+    assert "browser_endpoint" not in provider.options
+
+
 def test_browser_access_defaults_to_headless_and_allows_visible_override(tmp_path, capsys):
     config_path = tmp_path / "config.toml"
     assert main(["init", "config", "--config", str(config_path)]) == 0
