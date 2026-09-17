@@ -9,9 +9,41 @@ from .errors import ConfigError
 from .models import AppConfig, SiteConfig
 
 
+DEFAULT_CONFIG_TEMPLATE = '''# Lyra configuration
+# Add one or more enabled site adapters before running search.
+
+[settings]
+output_dir = "./downloads"
+timeout = 10.0
+retries = 1
+max_response_bytes = 10485760
+
+# Example offline adapter. Replace this with a lawful site adapter
+# supported by your installation and permitted by the site's terms.
+# [[sites]]
+# id = "fixture"
+# name = "Fixture Site"
+# adapter = "fixture"
+# enabled = true
+# priority = 10
+# fixture_path = "./tests/fixtures/site"
+'''
+
+
 def default_config_path() -> Path:
     config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     return config_home / "lyra" / "config.toml"
+
+
+def init_config(path: Path, *, force: bool = False) -> Path:
+    if path.exists() and not force:
+        raise FileExistsError(f"configuration file already exists: {path}; use --force to replace it")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(DEFAULT_CONFIG_TEMPLATE, encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(f"cannot initialize configuration: {exc}") from exc
+    return path
 
 
 def _as_float(value: Any, field_name: str) -> float:

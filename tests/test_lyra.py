@@ -7,6 +7,7 @@ import pytest
 
 from lyra.adapters.registry import default_registry
 from lyra.application import DownloadService, SearchService
+from lyra.cli import main
 from lyra.config import load_config
 from lyra.errors import ConfigError
 from lyra.models import SongCandidate
@@ -78,3 +79,19 @@ def test_safe_component_removes_path_controls():
     assert "/" not in value
     assert ".." not in value
     assert value == "__Artist_Song__"
+
+
+def test_init_config_creates_template_and_requires_force(tmp_path, capsys):
+    config_path = tmp_path / "lyra" / "config.toml"
+
+    assert main(["init", "config", "--config", str(config_path)]) == 0
+    assert config_path.exists()
+    content = config_path.read_text(encoding="utf-8")
+    assert "[settings]" in content
+    assert "[[sites]]" in content
+    assert "password" not in content.lower()
+    assert "Initialized configuration" in capsys.readouterr().out
+
+    assert main(["init", "config", "--config", str(config_path)]) == 1
+    assert "already exists" in capsys.readouterr().err
+    assert main(["init", "config", "--config", str(config_path), "--force"]) == 0

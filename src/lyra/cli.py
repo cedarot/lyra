@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .adapters.registry import default_registry
 from .application import DownloadService, SearchService
-from .config import default_config_path, load_config
+from .config import default_config_path, init_config, load_config
 from .errors import ConfigError, LyraError, NoResultsError, SelectionError
 from .models import SearchReport, SongCandidate
 from .storage import read_search_cache, write_search_cache
@@ -25,6 +25,12 @@ def _parser() -> argparse.ArgumentParser:
     config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
     config_validate = config_subparsers.add_parser("validate", help="validate a TOML configuration")
     config_validate.add_argument("--config", type=Path, default=default_config_path())
+
+    init = subparsers.add_parser("init", help="create Lyra user configuration")
+    init_subparsers = init.add_subparsers(dest="init_command", required=True)
+    init_config_parser = init_subparsers.add_parser("config", help="create a starter TOML configuration")
+    init_config_parser.add_argument("--config", type=Path, default=default_config_path())
+    init_config_parser.add_argument("--force", action="store_true", help="replace an existing configuration")
 
     search = subparsers.add_parser("search", help="search enabled music sites")
     search.add_argument("query")
@@ -82,6 +88,10 @@ def _select(candidates: list[SongCandidate], requested: int | None) -> SongCandi
 
 
 def _run(args: argparse.Namespace) -> int:
+    if args.command == "init":
+        path = init_config(args.config, force=args.force)
+        print(f"Initialized configuration: {path}")
+        return EXIT_OK
     if args.command == "config":
         _load(args.config)
         print(f"Configuration is valid: {args.config}")

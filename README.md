@@ -15,12 +15,13 @@ python -m pip install -e .
 ## Quick start
 
 ```sh
+lyra init config
 lyra config validate --config tests/fixtures/valid-config.toml
 lyra search "fixture song" --config tests/fixtures/valid-config.toml --json
 lyra download --config tests/fixtures/valid-config.toml --result 1 --output ./downloads
 ```
 
-The fixture adapter is intentionally offline and demonstrates the adapter contract. Live adapters are only added for sites whose terms and access rules permit the requested automation.
+`lyra init config` creates a starter TOML file in the platform configuration directory. Use `--config PATH` to choose a location and `--force` to replace an existing file. The generated file contains a commented fixture adapter example; enable and configure lawful site adapters before searching. The fixture adapter is intentionally offline and demonstrates the adapter contract. Live adapters are only added for sites whose terms and access rules permit the requested automation.
 
 ## Configuration
 
