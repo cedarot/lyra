@@ -62,10 +62,11 @@ Lyra does not bypass DRM, paywalls, CAPTCHA, login restrictions, or other access
 When a site provides an authorized, currently valid audio resource URL, download it without HTML parsing:
 
 ```sh
+lyra download-url 'https://cdn.example/audio/song.flac?signature=...'
 lyra download-url 'https://cdn.example/audio/song.flac?signature=...' --output ./downloads
 ```
 
-Lyra preserves the URL extension, supports `--filename`, `--overwrite`, and `--json`, and reports HTTP status failures such as 403 or 404. Signed URLs may expire quickly; Lyra does not bypass or refresh access-control tokens.
+`--output` is optional: without it, Lyra uses `settings.output_dir` from the selected configuration. When supplied, it is treated as a directory and Lyra saves the file inside it using the filename from the URL path. `--filename` can override that name. Lyra preserves the URL extension, supports `--overwrite` and `--json`, and reports HTTP status failures such as 403 or 404. Signed URLs may expire quickly; Lyra does not bypass or refresh access-control tokens.
 
 ## Adapter development
 

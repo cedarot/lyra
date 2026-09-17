@@ -84,7 +84,10 @@ class DirectDownloadService:
         target_name = safe_component(target_name, f"audio{extension}")
         if "." not in target_name.rsplit("/", 1)[-1]:
             target_name = f"{target_name}{extension}"
-        path = save_audio_bytes(data, output_dir or self.config.output_dir, target_name, overwrite)
+        directory = Path(output_dir or self.config.output_dir).expanduser()
+        if directory.exists() and not directory.is_dir():
+            raise LyraError(f"output path is not a directory: {directory}")
+        path = save_audio_bytes(data, str(directory), target_name, overwrite)
         return DirectDownloadResult(url=url, path=str(path), bytes_written=len(data))
 
     @staticmethod

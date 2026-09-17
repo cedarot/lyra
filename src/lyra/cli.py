@@ -91,9 +91,9 @@ def _parser() -> argparse.ArgumentParser:
 
     direct = subparsers.add_parser("download-url", help="download an authorized HTTPS audio URL directly")
     direct.add_argument("url")
-    direct.add_argument("--config", type=Path, default=default_config_path())
-    direct.add_argument("--output", type=str)
-    direct.add_argument("--filename", type=str)
+    direct.add_argument("--config", type=Path, default=default_config_path(), help="TOML configuration path")
+    direct.add_argument("--output", type=str, help="output directory; defaults to settings.output_dir")
+    direct.add_argument("--filename", type=str, help="optional filename; defaults to the URL path filename")
     direct.add_argument("--overwrite", action="store_true")
     direct.add_argument("--json", action="store_true", dest="as_json")
     return parser

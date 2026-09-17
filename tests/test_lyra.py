@@ -11,7 +11,7 @@ from lyra.application import DirectDownloadService, DownloadService, SearchServi
 import lyra.application as application
 from lyra.cli import main
 from lyra.config import load_config
-from lyra.errors import ConfigError
+from lyra.errors import ConfigError, LyraError
 from lyra.models import AppConfig, SiteConfig
 from lyra.storage import safe_component
 
@@ -189,6 +189,41 @@ def test_direct_download_preserves_extension_and_supports_custom_filename(tmp_pa
     assert result.bytes_written == 9
 
 
+def test_direct_download_uses_configured_directory_and_url_filename(tmp_path, monkeypatch):
+    monkeypatch.setattr(application, "HttpClient", FakeDirectHttpClient)
+    configured_dir = tmp_path / "configured-downloads"
+    service = DirectDownloadService(AppConfig(output_dir=str(configured_dir)))
+
+    result = service.download("https://cdn.example/path/network-name.flac?signature=temporary")
+
+    assert Path(result.path) == configured_dir / "network-name.flac"
+    assert Path(result.path).read_bytes() == b"FLAC DATA"
+
+
+def test_direct_download_output_is_a_directory_with_url_filename(tmp_path, monkeypatch):
+    monkeypatch.setattr(application, "HttpClient", FakeDirectHttpClient)
+    explicit_dir = tmp_path / "explicit-downloads"
+    service = DirectDownloadService(AppConfig(output_dir=str(tmp_path / "unused")))
+
+    result = service.download(
+        "https://cdn.example/path/network-name.flac?signature=temporary",
+        output_dir=str(explicit_dir),
+    )
+
+    assert Path(result.path) == explicit_dir / "network-name.flac"
+    assert Path(result.path).read_bytes() == b"FLAC DATA"
+
+
+def test_direct_download_rejects_output_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(application, "HttpClient", FakeDirectHttpClient)
+    output_file = tmp_path / "output"
+    output_file.write_text("not a directory", encoding="utf-8")
+    service = DirectDownloadService(AppConfig(output_dir=str(tmp_path / "unused")))
+
+    with pytest.raises(LyraError, match="not a directory"):
+        service.download("https://cdn.example/path/song.flac", output_dir=str(output_file))
+
+
 def test_direct_download_cli_works_without_config_file(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(application, "HttpClient", FakeDirectHttpClient)
     result = main([
@@ -199,3 +234,4 @@ def test_direct_download_cli_works_without_config_file(tmp_path, monkeypatch, ca
     assert result == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["bytes"] == 9
+    assert Path(payload["path"]) == tmp_path / "song.flac"
