@@ -146,12 +146,14 @@ def test_provider_add_supports_browser_access_mode(tmp_path, capsys):
 
     assert main([
         "provider", "add", "https://music.example.com", "--access-mode", "browser",
+        "--browser-endpoint", "http://127.0.0.1:9222",
         "--config", str(config_path),
     ]) == 0
     capsys.readouterr()
 
     config = load_config(config_path, default_registry().ids)
     assert config.sites[0].access_mode == "browser"
+    assert config.sites[0].options["browser_endpoint"] == "http://127.0.0.1:9222"
 
 
 def test_config_rejects_unknown_access_mode(tmp_path):

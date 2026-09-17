@@ -59,6 +59,7 @@ def _parser() -> argparse.ArgumentParser:
     provider_add.add_argument("--rate-limit", type=float, default=0.0, help="seconds between requests")
     provider_add.add_argument("--access-mode", choices=("http", "browser"), default="http", help="provider access transport")
     provider_add.add_argument("--browser-headless", action="store_true", help="run browser access without a visible window")
+    provider_add.add_argument("--browser-endpoint", help="credential-free CDP endpoint for a user-launched browser")
     provider_add.add_argument("--force", action="store_true", help="replace an existing provider")
 
     provider_list = provider_subparsers.add_parser("list", help="list configured website providers")
@@ -296,6 +297,12 @@ def _run(args: argparse.Namespace) -> int:
                 raise ConfigError("rate limit must be non-negative")
             if args.browser_headless and args.access_mode != "browser":
                 raise ConfigError("--browser-headless requires --access-mode browser")
+            if args.browser_endpoint:
+                endpoint = urlparse(args.browser_endpoint)
+                if args.access_mode != "browser":
+                    raise ConfigError("--browser-endpoint requires --access-mode browser")
+                if endpoint.scheme not in {"http", "https", "ws", "wss"} or not endpoint.netloc or endpoint.username or endpoint.password:
+                    raise ConfigError("--browser-endpoint must be a credential-free CDP URL")
             provider = {
                 "id": provider_id,
                 "name": provider_name,
@@ -310,6 +317,8 @@ def _run(args: argparse.Namespace) -> int:
             }
             if args.browser_headless:
                 provider["browser_headless"] = True
+            if args.browser_endpoint:
+                provider["browser_endpoint"] = args.browser_endpoint
             add_provider(args.config, provider, force=args.force)
             print(f"Added provider: {provider_id}")
             return EXIT_OK

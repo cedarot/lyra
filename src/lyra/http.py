@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from urllib.parse import urlparse
 
 from .errors import SiteError
 from .models import SiteConfig
@@ -72,6 +73,8 @@ class BrowserClient:
         self._browser = None
         self._context = None
         self._page = None
+        self._owns_browser = False
+        self._owns_context = False
 
     def _start(self) -> None:
         if self._page is not None:
@@ -80,9 +83,27 @@ class BrowserClient:
             from playwright.sync_api import sync_playwright
 
             self._playwright = sync_playwright().start()
-            headless = self.site.options.get("browser_headless", False)
-            self._browser = self._playwright.chromium.launch(headless=headless)
-            self._context = self._browser.new_context()
+            endpoint = self.site.options.get("browser_endpoint")
+            if endpoint is not None:
+                if not isinstance(endpoint, str):
+                    raise SiteError(self.site.id, "configuration", "browser_endpoint must be a URL")
+                parsed = urlparse(endpoint)
+                if parsed.scheme not in {"http", "https", "ws", "wss"} or not parsed.netloc or parsed.username or parsed.password:
+                    raise SiteError(self.site.id, "configuration", "browser_endpoint must be a credential-free CDP URL")
+                self._browser = self._playwright.chromium.connect_over_cdp(endpoint)
+                self._owns_browser = False
+                if self._browser.contexts:
+                    self._context = self._browser.contexts[0]
+                    self._owns_context = False
+                else:
+                    self._context = self._browser.new_context()
+                    self._owns_context = True
+            else:
+                headless = self.site.options.get("browser_headless", False)
+                self._browser = self._playwright.chromium.launch(headless=headless)
+                self._owns_browser = True
+                self._context = self._browser.new_context()
+                self._owns_context = True
             self._page = self._context.new_page()
         except ImportError as exc:
             raise SiteError(self.site.id, "configuration", "browser access requires 'lyra[browser]' and a Chromium install") from exc
@@ -155,13 +176,24 @@ class BrowserClient:
             raise SiteError(site.id, "browser", "browser resource request failed") from exc
 
     def close(self) -> None:
-        for resource in (self._context, self._browser, self._playwright):
-            if resource is not None:
-                try:
-                    resource.close() if resource is not self._playwright else resource.stop()
-                except Exception:
-                    pass
+        if self._owns_context and self._context is not None:
+            try:
+                self._context.close()
+            except Exception:
+                pass
+        if self._owns_browser and self._browser is not None:
+            try:
+                self._browser.close()
+            except Exception:
+                pass
+        if self._playwright is not None:
+            try:
+                self._playwright.stop()
+            except Exception:
+                pass
         self._page = None
         self._context = None
         self._browser = None
         self._playwright = None
+        self._owns_browser = False
+        self._owns_context = False

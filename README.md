@@ -46,6 +46,8 @@ fixture_path = "tests/fixtures/site"
 
 Providers use `access_mode = "http"` by default. For a provider that requires JavaScript and a user-controlled browser session, configure `access_mode = "browser"` (install with `python -m pip install -e '.[browser]'` and then `python -m playwright install chromium`). Browser mode opens an ephemeral visible browser, keeps its session only for the current Lyra command, and lets the user complete any site verification manually. It does not persist cookies or automate CAPTCHA/access-control bypasses. `--browser-headless` is available for browser providers that do not require manual interaction.
 
+If a provider repeatedly challenges a Playwright-launched browser, connect Lyra to a user-launched Chrome instead. Start Chrome with a separate profile and CDP enabled, for example `google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/lyra-browser-profile`, then configure the provider with `--browser-endpoint http://127.0.0.1:9222`. Lyra connects to the existing browser context without closing it; the browser owns its session and the user remains responsible for completing site verification.
+
 `resolve "歌曲名"` searches the enabled providers, resolves the selected result's direct audio URL, and prints it. `download "歌曲名"` performs the same search and automatically downloads the highest-ranked result; use `--result N` to choose a different result.
 
 ## Website providers
