@@ -1,0 +1,13 @@
+[settings]
+output_dir = "./.test-downloads"
+timeout = 2.0
+retries = 0
+max_response_bytes = 1048576
+
+[[sites]]
+id = "fixture"
+name = "Fixture Site"
+adapter = "fixture"
+enabled = true
+priority = 10
+fixture_path = "tests/fixtures/site"
