@@ -62,7 +62,12 @@ class TwentyFourBitAdapter(SiteAdapter):
 
     def get_details(self, candidate: SongCandidate, site: SiteConfig, client: HttpClient) -> SongDetails:
         try:
-            soup = BeautifulSoup(client.fetch_text(candidate.details_url, site), "html.parser")
+            html = client.fetch_text(candidate.details_url, site)
+            lower_html = html.casefold()
+            quota_markers = ("今日访问已达限额", "今日免费额度已用完", "免费额度", "需要注册")
+            if any(marker in lower_html for marker in quota_markers):
+                raise SiteError(site.id, "access", "24bit daily free quota is exhausted; registration is required")
+            soup = BeautifulSoup(html, "html.parser")
             source = soup.select_one("audio source[src]")
         except SiteError:
             raise

@@ -299,6 +299,26 @@ class BrowserClient:
             raise SiteError(site.id, "configuration", "browser transport used with a different provider")
         if not url.startswith("https://"):
             raise SiteError(site.id, "security", "only HTTPS resources are allowed")
+        if self.site.adapter == "24bit":
+            self._start()
+            timeout_ms = int((site.timeout or self.timeout) * 1000)
+            try:
+                response = self._context.request.get(
+                    url,
+                    headers={"Accept": "text/html,text/plain;q=0.9"},
+                    timeout=timeout_ms,
+                )
+                body = response.body()
+                if len(body) > self.max_response_bytes:
+                    raise SiteError(site.id, "response_too_large", "response exceeds configured size limit")
+                text = body.decode("utf-8", errors="replace")
+                challenge_markers = ("just a moment", "verify you are human", "checking your browser", "security check")
+                if response.ok and not any(marker in text.casefold() for marker in challenge_markers):
+                    return text
+            except SiteError:
+                raise
+            except Exception:
+                pass
         self._load(url)
         body = self._page.content().encode("utf-8")
         if len(body) > self.max_response_bytes:

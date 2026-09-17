@@ -12,9 +12,9 @@ from lyra.application import DirectDownloadService, DownloadService, ResolveServ
 import lyra.application as application
 from lyra.cli import main
 from lyra.config import load_config
-from lyra.errors import ConfigError, LyraError
+from lyra.errors import ConfigError, LyraError, SiteError
 from lyra.http import BrowserClient
-from lyra.models import AppConfig, SiteConfig
+from lyra.models import AppConfig, SiteConfig, SongCandidate
 from lyra.storage import safe_component
 
 
@@ -256,6 +256,18 @@ def test_24bit_adapter_uses_fixed_search_and_detail_interfaces():
     assert details.audio.extension == ".flac"
 
 
+def test_24bit_adapter_reports_quota_page_as_access_error():
+    site = SiteConfig(id="24bit", name="24bit", adapter="24bit", base_url="https://www.24bit.net")
+    candidate = SongCandidate(site_id="24bit", site_name="24bit", title="Test", details_url="https://www.24bit.net/music/c/song-1")
+
+    class QuotaClient:
+        def fetch_text(self, url, site):
+            return "<html>今日访问已达限额，今日免费额度已用完，需要注册</html>"
+
+    with pytest.raises(SiteError, match="daily free quota is exhausted"):
+        TwentyFourBitAdapter().get_details(candidate, site, QuotaClient())
+
+
 def test_config_rejects_unknown_access_mode(tmp_path):
     path = tmp_path / "bad.toml"
     path.write_text(
@@ -329,6 +341,7 @@ def test_browser_client_launches_headless_without_cdp(monkeypatch):
             pass
 
     monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: FakePlaywright())
+    monkeypatch.setattr(BrowserClient, "_detect_auto_cdp_endpoint", lambda self: None)
     site = SiteConfig(id="browser", name="Browser", adapter="html", access_mode="browser")
     client = BrowserClient(10.0, 1, 1024, site)
 
