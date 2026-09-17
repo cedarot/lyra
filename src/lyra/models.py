@@ -111,9 +111,3 @@ class ProviderTestResult:
     audio_downloaded: bool
     audio_bytes: int | None
     error: str | None = None
-
-
-@dataclass(frozen=True)
-class ProviderTestFailure:
-    provider_id: str
-    error: str

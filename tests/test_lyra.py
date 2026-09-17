@@ -151,13 +151,12 @@ def test_provider_test_reports_audio_download(capsys):
     assert payload["audio_bytes"] > 0
 
 
-def test_provider_test_accepts_unquoted_multiword_query_and_all_providers(capsys):
+def test_provider_test_accepts_unquoted_multiword_query(capsys):
     config_path = ROOT / "fixtures/valid-config.toml"
-    assert main(["provider", "test", "--config", str(config_path), "--query", "fixture", "song", "--audio", "--json"]) == 0
+    assert main(["provider", "test", "fixture", "--config", str(config_path), "--query", "fixture", "song", "--audio", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert len(payload["results"]) == 1
-    assert payload["results"][0]["query"] == "fixture song"
-    assert payload["results"][0]["audio_downloaded"] is True
+    assert payload["query"] == "fixture song"
+    assert payload["audio_downloaded"] is True
 
 
 def test_provider_list_outputs_configured_sites(capsys):
