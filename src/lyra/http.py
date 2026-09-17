@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 import time
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from urllib.parse import urlparse
@@ -124,6 +128,8 @@ class BrowserClient:
         self._owns_browser = False
         self._owns_context = False
         self._owns_page = False
+        self._browser_process = None
+        self._managed_browser = False
 
     def _start(self) -> None:
         if self._context is not None:
@@ -149,25 +155,98 @@ class BrowserClient:
                     self._context = self._browser.new_context()
                     self._owns_context = True
             elif auto_endpoint:
-                self._browser = self._playwright.chromium.connect_over_cdp(auto_endpoint)
-                self._owns_browser = False
-                if self._browser.contexts:
-                    self._context = self._browser.contexts[0]
-                    self._owns_context = False
+                self._connect_cdp(auto_endpoint)
+            else:
+                managed_endpoint = self._launch_managed_chrome() if self.site.adapter == "24bit" else None
+                if managed_endpoint:
+                    self._managed_browser = True
+                    self._connect_cdp(managed_endpoint)
                 else:
+                    headless = self.site.options.get("browser_headless", True)
+                    self._browser = self._playwright.chromium.launch(headless=headless)
+                    self._owns_browser = True
                     self._context = self._browser.new_context()
                     self._owns_context = True
-            else:
-                headless = self.site.options.get("browser_headless", True)
-                self._browser = self._playwright.chromium.launch(headless=headless)
-                self._owns_browser = True
-                self._context = self._browser.new_context()
-                self._owns_context = True
         except ImportError as exc:
             raise SiteError(self.site.id, "configuration", "browser access requires 'lyra[browser]' and a Chromium install") from exc
         except Exception as exc:
             self.close()
             raise SiteError(self.site.id, "browser", "cannot start the configured browser") from exc
+
+    def _connect_cdp(self, endpoint: str) -> None:
+        self._browser = self._playwright.chromium.connect_over_cdp(endpoint)
+        self._owns_browser = False
+        if self._browser.contexts:
+            self._context = self._browser.contexts[0]
+            self._owns_context = False
+        else:
+            self._context = self._browser.new_context()
+            self._owns_context = True
+
+    def _launch_managed_chrome(self) -> str | None:
+        """Launch a persistent, background Chrome profile for 24bit when none is attached."""
+        executable = next((shutil.which(name) for name in (
+            "google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
+        ) if shutil.which(name)), None)
+        if executable is None:
+            return None
+        profile = self.site.options.get("browser_profile")
+        if not isinstance(profile, str) or not profile:
+            cache_root = os.environ.get("XDG_CACHE_HOME")
+            known_profile = next((candidate for candidate in (
+                Path("/tmp/lyra-24bit-profile"), Path("/tmp/lyra-browser-profile"),
+            ) if candidate.is_dir()), None)
+            profile_path = known_profile or ((Path(cache_root) / "lyra" / "browser" / self.site.id) if cache_root else (
+                Path.home() / ".cache" / "lyra" / "browser" / self.site.id
+            ))
+        else:
+            profile_path = Path(profile).expanduser()
+        try:
+            profile_path.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return None
+        args = [
+            executable,
+            "--remote-debugging-port=9222",
+            f"--user-data-dir={profile_path}",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-default-apps",
+        ]
+        if self.site.options.get("browser_headless", True):
+            args.extend(("--start-minimized", "--window-position=-10000,-10000"))
+        args.append("about:blank")
+        try:
+            self._browser_process = subprocess.Popen(
+                args,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError:
+            return None
+        for _ in range(40):
+            if self._browser_process.poll() is not None:
+                break
+            endpoint = self._detect_auto_cdp_endpoint()
+            if endpoint:
+                return endpoint
+            time.sleep(0.1)
+        self._stop_managed_chrome()
+        return None
+
+    def _stop_managed_chrome(self) -> None:
+        if self._browser_process is None:
+            return
+        try:
+            self._browser_process.terminate()
+            self._browser_process.wait(timeout=3)
+        except (OSError, subprocess.TimeoutExpired):
+            try:
+                self._browser_process.kill()
+            except OSError:
+                pass
+        self._browser_process = None
 
     def _detect_auto_cdp_endpoint(self) -> str | None:
         """Use the conventional local Chrome CDP endpoint when it is already available."""
@@ -252,6 +331,8 @@ class BrowserClient:
         if not url.startswith("https://"):
             raise SiteError(site.id, "security", "only HTTPS resources are allowed")
         self._start()
+        if self._managed_browser and self._page is None and self.site.base_url:
+            self._load(self.site.base_url)
         timeout_ms = int((site.timeout or self.timeout) * 1000)
         try:
             response = self._context.request.post(
@@ -295,6 +376,7 @@ class BrowserClient:
                 self._playwright.stop()
             except Exception:
                 pass
+        self._stop_managed_chrome()
         self._page = None
         self._context = None
         self._browser = None
@@ -302,3 +384,4 @@ class BrowserClient:
         self._owns_browser = False
         self._owns_context = False
         self._owns_page = False
+        self._managed_browser = False

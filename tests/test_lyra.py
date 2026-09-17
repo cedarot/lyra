@@ -355,6 +355,36 @@ def test_browser_client_detects_local_cdp_endpoint(monkeypatch):
     assert client._detect_auto_cdp_endpoint() == "http://127.0.0.1:9222"
 
 
+def test_24bit_browser_can_launch_managed_chrome(monkeypatch, tmp_path):
+    calls = {}
+
+    class FakeProcess:
+        def poll(self):
+            return None
+
+        def terminate(self):
+            calls["terminated"] = True
+
+        def wait(self, timeout):
+            calls["wait_timeout"] = timeout
+
+    monkeypatch.setattr("lyra.http.shutil.which", lambda name: "/usr/bin/google-chrome")
+    monkeypatch.setattr("lyra.http.subprocess.Popen", lambda args, **kwargs: calls.update(args=args, kwargs=kwargs) or FakeProcess())
+    site = SiteConfig(
+        id="24bit", name="24bit", adapter="24bit", access_mode="browser",
+        options={"browser_profile": str(tmp_path / "browser")},
+    )
+    client = BrowserClient(10.0, 1, 1024, site)
+    monkeypatch.setattr(client, "_detect_auto_cdp_endpoint", lambda: "http://127.0.0.1:9222")
+
+    assert client._launch_managed_chrome() == "http://127.0.0.1:9222"
+    assert "--remote-debugging-port=9222" in calls["args"]
+    assert f"--user-data-dir={tmp_path / 'browser'}" in calls["args"]
+    assert "--start-minimized" in calls["args"]
+    client._stop_managed_chrome()
+    assert calls["terminated"] is True
+
+
 class FakeHttpClient:
     def fetch_text(self, url, site):
         if "/search" in url:
