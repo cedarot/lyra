@@ -68,6 +68,18 @@ lyra init config --config ./lyra.toml
 
 The generated file contains the default output directory, timeout, retry count, and response-size limit. It does not contain a provider yet, so add at least one provider before validating it. Provider commands update this file without storing credentials.
 
+## Supported providers
+
+Lyra currently bundles these adapters:
+
+| Provider or adapter | ID | Access | Purpose |
+| --- | --- | --- | --- |
+| 24bit | `24bit` | Browser | Dedicated adapter for 24bit search and 96/192 kHz audio detail routes. |
+| Generic HTML site | `html` | HTTP or browser | Configurable adapter for sites using CSS selectors and conventional search/detail pages. |
+| Offline fixture | `fixture` | Local files | Test and demonstration adapter; it does not access a live music website. |
+
+Only 24bit is a named live provider included in the project. Other websites must be configured with the generic HTML adapter or implemented as a separate adapter. Provider availability still depends on the site's current markup, terms, and access limits.
+
 ## Browser-backed providers
 
 For a provider that requires JavaScript, add it in browser mode:
