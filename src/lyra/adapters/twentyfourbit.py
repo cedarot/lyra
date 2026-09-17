@@ -66,13 +66,7 @@ class TwentyFourBitAdapter(SiteAdapter):
             html = client.fetch_text(candidate.details_url, site)
             lower_html = html.casefold()
             if any(marker in lower_html for marker in self.quota_markers):
-                retry_after_login = getattr(client, "retry_after_login", None)
-                if not callable(retry_after_login):
-                    raise SiteError(site.id, "access", self._quota_message())
-                html = retry_after_login(candidate.details_url, site)
-                lower_html = html.casefold()
-                if any(marker in lower_html for marker in self.quota_markers):
-                    raise SiteError(site.id, "access", self._quota_message())
+                raise SiteError(site.id, "access", self._quota_message())
             soup = BeautifulSoup(html, "html.parser")
             source = soup.select_one("audio source[src]")
         except SiteError:
@@ -97,6 +91,6 @@ class TwentyFourBitAdapter(SiteAdapter):
     @staticmethod
     def _quota_message() -> str:
         return (
-            "24bit daily access quota is exhausted; log in with a visible browser session "
-            "or wait until tomorrow"
+            "24bit daily access quota is exhausted; this provider has no supported login flow, "
+            "so wait until tomorrow or use another authorized provider"
         )

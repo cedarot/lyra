@@ -268,39 +268,19 @@ def test_24bit_adapter_reports_quota_page_as_access_error():
         TwentyFourBitAdapter().get_details(candidate, site, QuotaClient())
 
 
-def test_24bit_adapter_retries_quota_page_after_browser_login():
+def test_24bit_adapter_does_not_attempt_unsupported_login_on_quota_page():
     site = SiteConfig(id="24bit", name="24bit", adapter="24bit", base_url="https://www.24bit.net")
     candidate = SongCandidate(site_id="24bit", site_name="24bit", title="Test", details_url="https://www.24bit.net/music/c/song-1")
 
-    class LoginClient:
-        def __init__(self):
-            self.retried_url = None
-
+    class QuotaClient:
         def fetch_text(self, url, site):
             return "<html>今日访问已达限额，可明日再来。 如果您已注册过，可登录后访问</html>"
 
         def retry_after_login(self, url, site):
-            self.retried_url = url
-            return "<audio><source src='https://cdn.example/song.flac' type='audio/flac'></audio>"
+            raise AssertionError("24bit must not attempt an unsupported login flow")
 
-    client = LoginClient()
-    details = TwentyFourBitAdapter().get_details(candidate, site, client)
-
-    assert client.retried_url == candidate.details_url
-    assert details.audio.url == "https://cdn.example/song.flac"
-
-
-def test_24bit_browser_login_requires_interactive_session(monkeypatch):
-    client = BrowserClient(
-        10.0,
-        1,
-        1024,
-        SiteConfig(id="24bit", name="24bit", adapter="24bit", access_mode="browser"),
-    )
-    site = client.site
-
-    with pytest.raises(SiteError, match="browser-visible"):
-        client.retry_after_login("https://www.24bit.net/music/c/song-1", site)
+    with pytest.raises(SiteError, match="no supported login flow"):
+        TwentyFourBitAdapter().get_details(candidate, site, QuotaClient())
 
 
 def test_config_rejects_unknown_access_mode(tmp_path):

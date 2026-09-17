@@ -48,7 +48,7 @@ Providers use `access_mode = "http"` by default. For a provider that requires Ja
 
 If a provider repeatedly challenges a Playwright-launched browser, Lyra can manage a background Chrome profile automatically. It first reuses a browser already available at the conventional local endpoint `http://127.0.0.1:9222`; otherwise the 24bit adapter starts Chrome with a dedicated profile and configures the endpoint internally. The managed browser remains available after a command so a later `download` can reuse its session. `--browser-endpoint` is only needed for a different endpoint. Lyra connects to an external browser without closing it; JSON-only requests do not create a blank tab, and any Lyra-created page is opened lazily and closed after use. The browser owns its session and the user remains responsible for completing site verification.
 
-If 24bit reports that today's access quota is exhausted, use a visible browser session for the normal site login flow, then retry the command. For example, configure the provider with `--browser-visible` (or use a visible browser's `--browser-endpoint`); Lyra pauses for you to complete login and never reads or stores your credentials.
+If 24bit reports that today's access quota is exhausted, this is a provider-side limit. The provider does not expose a supported registration or login flow, so Lyra waits for the quota to reset rather than attempting to bypass it; use another authorized provider if immediate access is required.
 
 `resolve "歌曲名"` searches the enabled providers, resolves the selected result's direct audio URL, and prints it. `download "歌曲名"` performs the same search and automatically downloads the highest-ranked result; use `--result N` to choose a different result.
 
