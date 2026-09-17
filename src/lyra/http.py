@@ -130,6 +130,7 @@ class BrowserClient:
         self._owns_page = False
         self._browser_process = None
         self._managed_browser = False
+        self._interactive_browser = False
 
     def _start(self) -> None:
         if self._context is not None:
@@ -148,6 +149,7 @@ class BrowserClient:
                     raise SiteError(self.site.id, "configuration", "browser_endpoint must be a credential-free CDP URL")
                 self._browser = self._playwright.chromium.connect_over_cdp(endpoint)
                 self._owns_browser = False
+                self._interactive_browser = True
                 if self._browser.contexts:
                     self._context = self._browser.contexts[0]
                     self._owns_context = False
@@ -156,17 +158,20 @@ class BrowserClient:
                     self._owns_context = True
             elif auto_endpoint:
                 self._connect_cdp(auto_endpoint)
+                self._interactive_browser = True
             else:
                 managed_endpoint = self._launch_managed_chrome() if self.site.adapter == "24bit" else None
                 if managed_endpoint:
                     self._managed_browser = True
                     self._connect_cdp(managed_endpoint)
+                    self._interactive_browser = not self.site.options.get("browser_headless", True)
                 else:
                     headless = self.site.options.get("browser_headless", True)
                     self._browser = self._playwright.chromium.launch(headless=headless)
                     self._owns_browser = True
                     self._context = self._browser.new_context()
                     self._owns_context = True
+                    self._interactive_browser = not headless
         except ImportError as exc:
             raise SiteError(self.site.id, "configuration", "browser access requires 'lyra[browser]' and a Chromium install") from exc
         except Exception as exc:
@@ -325,6 +330,49 @@ class BrowserClient:
             raise SiteError(site.id, "response_too_large", "response exceeds configured size limit")
         return body.decode("utf-8", errors="replace")
 
+    def retry_after_login(self, url: str, site: SiteConfig) -> str:
+        """Show a quota page in a visible browser and retry after manual login.
+
+        Lyra never receives or stores credentials. The user completes the provider's
+        normal login flow in the browser session, then explicitly resumes the request.
+        """
+        if site.id != self.site.id:
+            raise SiteError(site.id, "configuration", "browser transport used with a different provider")
+        if not url.startswith("https://"):
+            raise SiteError(site.id, "security", "only HTTPS resources are allowed")
+        if not self._interactive_browser:
+            raise SiteError(
+                site.id,
+                "access",
+                "24bit daily access quota is exhausted; rerun the provider with --browser-visible "
+                "or configure a visible --browser-endpoint, then log in and retry",
+            )
+
+        import sys
+
+        if not sys.stdin.isatty():
+            raise SiteError(
+                site.id,
+                "access",
+                "24bit daily access quota is exhausted; log in with a visible browser session and retry",
+            )
+        self._load(url)
+        try:
+            self._page.bring_to_front()
+        except Exception:
+            pass
+        print(
+            "24bit daily access limit reached. If you already have an account, log in in the browser window, "
+            "then press Enter to retry.",
+            file=sys.stderr,
+        )
+        input()
+        self._load(url)
+        body = self._page.content().encode("utf-8")
+        if len(body) > self.max_response_bytes:
+            raise SiteError(site.id, "response_too_large", "response exceeds configured size limit")
+        return body.decode("utf-8", errors="replace")
+
     def fetch_bytes(self, url: str, site: SiteConfig, *, accept: str = "*/*") -> bytes:
         if site.id != self.site.id:
             raise SiteError(site.id, "configuration", "browser transport used with a different provider")
@@ -402,3 +450,4 @@ class BrowserClient:
         self._owns_context = False
         self._owns_page = False
         self._managed_browser = False
+        self._interactive_browser = False

@@ -17,6 +17,7 @@ class TwentyFourBitAdapter(SiteAdapter):
     adapter_id = "24bit"
     search_endpoint = "/api/player/searchOnlineMusicOne"
     detail_paths = {"96": "/music/c/{id}", "192": "/music/a/{id}"}
+    quota_markers = ("今日访问已达限额", "今日免费额度已用完", "免费额度", "需要注册")
 
     def _base_url(self, site: SiteConfig) -> str:
         if not site.base_url:
@@ -64,9 +65,14 @@ class TwentyFourBitAdapter(SiteAdapter):
         try:
             html = client.fetch_text(candidate.details_url, site)
             lower_html = html.casefold()
-            quota_markers = ("今日访问已达限额", "今日免费额度已用完", "免费额度", "需要注册")
-            if any(marker in lower_html for marker in quota_markers):
-                raise SiteError(site.id, "access", "24bit daily access quota is exhausted; wait until tomorrow or use the site's login flow")
+            if any(marker in lower_html for marker in self.quota_markers):
+                retry_after_login = getattr(client, "retry_after_login", None)
+                if not callable(retry_after_login):
+                    raise SiteError(site.id, "access", self._quota_message())
+                html = retry_after_login(candidate.details_url, site)
+                lower_html = html.casefold()
+                if any(marker in lower_html for marker in self.quota_markers):
+                    raise SiteError(site.id, "access", self._quota_message())
             soup = BeautifulSoup(html, "html.parser")
             source = soup.select_one("audio source[src]")
         except SiteError:
@@ -86,4 +92,11 @@ class TwentyFourBitAdapter(SiteAdapter):
         return SongDetails(
             candidate=candidate,
             audio=AudioResource(url=audio_url, extension=extension, content_type=content_type),
+        )
+
+    @staticmethod
+    def _quota_message() -> str:
+        return (
+            "24bit daily access quota is exhausted; log in with a visible browser session "
+            "or wait until tomorrow"
         )
