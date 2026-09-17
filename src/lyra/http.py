@@ -121,9 +121,10 @@ class BrowserClient:
         self._page = None
         self._owns_browser = False
         self._owns_context = False
+        self._owns_page = False
 
     def _start(self) -> None:
-        if self._page is not None:
+        if self._context is not None:
             return
         try:
             from playwright.sync_api import sync_playwright
@@ -150,7 +151,6 @@ class BrowserClient:
                 self._owns_browser = True
                 self._context = self._browser.new_context()
                 self._owns_context = True
-            self._page = self._context.new_page()
         except ImportError as exc:
             raise SiteError(self.site.id, "configuration", "browser access requires 'lyra[browser]' and a Chromium install") from exc
         except Exception as exc:
@@ -159,6 +159,9 @@ class BrowserClient:
 
     def _load(self, url: str) -> None:
         self._start()
+        if self._page is None:
+            self._page = self._context.new_page()
+            self._owns_page = True
         timeout_ms = int((self.site.timeout or self.timeout) * 1000)
         try:
             response = self._page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
@@ -250,6 +253,11 @@ class BrowserClient:
             raise SiteError(site.id, "browser", "browser JSON request failed") from exc
 
     def close(self) -> None:
+        if self._owns_page and self._page is not None:
+            try:
+                self._page.close()
+            except Exception:
+                pass
         if self._owns_context and self._context is not None:
             try:
                 self._context.close()
@@ -271,3 +279,4 @@ class BrowserClient:
         self._playwright = None
         self._owns_browser = False
         self._owns_context = False
+        self._owns_page = False

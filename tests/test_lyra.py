@@ -276,7 +276,11 @@ def test_browser_client_launches_headless_without_cdp(monkeypatch):
         pass
 
     class FakeContext:
+        def __init__(self):
+            self.pages_created = 0
+
         def new_page(self):
+            self.pages_created += 1
             return FakePage()
 
         def close(self):
@@ -286,7 +290,9 @@ def test_browser_client_launches_headless_without_cdp(monkeypatch):
         contexts = []
 
         def new_context(self):
-            return FakeContext()
+            context = FakeContext()
+            calls["context"] = context
+            return context
 
         def close(self):
             pass
@@ -310,6 +316,7 @@ def test_browser_client_launches_headless_without_cdp(monkeypatch):
     client = BrowserClient(10.0, 1, 1024, site)
 
     client._start()
+    assert calls["context"].pages_created == 0
     client.close()
 
     assert calls["headless"] is True
