@@ -59,13 +59,17 @@ def _parser() -> argparse.ArgumentParser:
     provider_add.add_argument("--rate-limit", type=float, default=0.0, help="seconds between requests")
     provider_add.add_argument("--force", action="store_true", help="replace an existing provider")
 
+    provider_list = provider_subparsers.add_parser("list", help="list configured website providers")
+    provider_list.add_argument("--config", type=Path, default=default_config_path())
+    provider_list.add_argument("--json", action="store_true", dest="as_json")
+
     provider_delete = provider_subparsers.add_parser("delete", help="delete a configured website provider")
     provider_delete.add_argument("provider_id")
     provider_delete.add_argument("--config", type=Path, default=default_config_path())
 
     provider_test = provider_subparsers.add_parser("test", help="test a provider and optionally download one audio resource")
-    provider_test.add_argument("provider_id")
-    provider_test.add_argument("--query", required=True)
+    provider_test.add_argument("provider_id", nargs="?")
+    provider_test.add_argument("--query", required=True, nargs="+")
     provider_test.add_argument("--config", type=Path, default=default_config_path())
     provider_test.add_argument("--result", type=int, default=1)
     provider_test.add_argument("--audio", action="store_true", help="download bytes to verify audio access")
@@ -177,6 +181,56 @@ def _print_provider_test(result, as_json: bool, downloaded: bool) -> int:
     return EXIT_OK if passed else EXIT_RUNTIME
 
 
+def _provider_test_payload(result) -> dict:
+    return {
+        "provider_id": result.provider_id,
+        "query": result.query,
+        "candidate": result.candidate.to_dict() if result.candidate else None,
+        "audio_available": result.audio_available,
+        "audio_downloaded": result.audio_downloaded,
+        "audio_bytes": result.audio_bytes,
+        "error": result.error,
+    }
+
+
+def _print_provider_tests(results, failures, as_json: bool, downloaded: bool) -> int:
+    if as_json:
+        print(json.dumps({
+            "results": [_provider_test_payload(result) for result in results],
+            "failures": [failure.__dict__ for failure in failures],
+        }, ensure_ascii=False, indent=2))
+    else:
+        for result in results:
+            _print_provider_test(result, False, downloaded)
+        for failure in failures:
+            print(f"Provider {failure.provider_id} failed: {failure.error}", file=sys.stderr)
+    passed = bool(results) and not failures and all(
+        result.audio_downloaded if downloaded else result.audio_available for result in results
+    )
+    return EXIT_OK if passed else EXIT_RUNTIME
+
+
+def _print_provider_list(config, as_json: bool) -> int:
+    providers = [{
+        "id": site.id,
+        "name": site.name,
+        "adapter": site.adapter,
+        "base_url": site.base_url,
+        "enabled": site.enabled,
+        "priority": site.priority,
+    } for site in config.sites]
+    if as_json:
+        print(json.dumps(providers, ensure_ascii=False, indent=2))
+    else:
+        if not providers:
+            print("No providers configured.")
+        else:
+            print("ID\tNAME\tADAPTER\tENABLED\tBASE URL")
+            for provider in providers:
+                print(f"{provider['id']}\t{provider['name']}\t{provider['adapter']}\t{str(provider['enabled']).lower()}\t{provider['base_url']}")
+    return EXIT_OK
+
+
 def _select(candidates: list[SongCandidate], requested: int | None) -> SongCandidate:
     if requested is not None:
         if requested < 1 or requested > len(candidates):
@@ -238,8 +292,16 @@ def _run(args: argparse.Namespace) -> int:
             print(f"Deleted provider: {args.provider_id}")
             return EXIT_OK
         config, registry = _load(args.config)
-        result = ProviderTestService(config, registry).test(args.provider_id, args.query, args.result, args.audio)
-        return _print_provider_test(result, args.as_json, args.audio)
+        if args.provider_command == "list":
+            return _print_provider_list(config, args.as_json)
+        query = " ".join(args.query)
+        service = ProviderTestService(config, registry)
+        if args.provider_id:
+            result = service.test(args.provider_id, query, args.result, args.audio)
+            return _print_provider_test(result, args.as_json, args.audio)
+        provider_ids = [site.id for site in config.sites if site.enabled]
+        results, failures = service.test_many(provider_ids, query, args.result, args.audio)
+        return _print_provider_tests(results, failures, args.as_json, args.audio)
 
     config, registry = _load(args.config)
     if args.command == "search":

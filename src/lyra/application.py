@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 from .adapters.registry import AdapterRegistry
 from .errors import LyraError, SiteError
 from .http import HttpClient
-from .models import AppConfig, DownloadResult, ProviderTestResult, SearchReport, SiteFailure, SongCandidate
+from .models import AppConfig, DownloadResult, ProviderTestFailure, ProviderTestResult, SearchReport, SiteFailure, SongCandidate
 from .storage import save_download
 
 
@@ -87,3 +87,13 @@ class ProviderTestService:
             return ProviderTestResult(provider_id, query, candidate, True, False, None, "audio resource has no URL")
         data = client.fetch_bytes(audio.url, site, accept=audio.content_type)
         return ProviderTestResult(provider_id, query, candidate, True, True, len(data))
+
+    def test_many(self, provider_ids: list[str], query: str, result_index: int = 1, download_audio: bool = False) -> tuple[list[ProviderTestResult], list[ProviderTestFailure]]:
+        results: list[ProviderTestResult] = []
+        failures: list[ProviderTestFailure] = []
+        for provider_id in provider_ids:
+            try:
+                results.append(self.test(provider_id, query, result_index, download_audio))
+            except LyraError as exc:
+                failures.append(ProviderTestFailure(provider_id, str(exc)))
+        return results, failures

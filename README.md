@@ -51,7 +51,7 @@ Add a new website without specifying an ID, name, base URL, or selectors. Lyra d
 lyra provider add https://music.example
 ```
 
-For sites with non-standard HTML, override individual defaults such as `--search-path`, `--result-selector`, `--title-selector`, or `--audio-selector`. Manage providers with `lyra provider delete PROVIDER_ID`. Test search and audio access with `lyra provider test PROVIDER_ID --query "song title" --audio`; `--audio` downloads the resource into memory and reports the byte count without saving it. Provider definitions contain selectors and URLs only; do not add credentials, cookies, or tokens.
+For sites with non-standard HTML, override individual defaults such as `--search-path`, `--result-selector`, `--title-selector`, or `--audio-selector`. List providers with `lyra provider list` or `lyra provider list --json`; delete one with `lyra provider delete PROVIDER_ID`. Test all enabled providers with `lyra provider test --query song title --audio`, or test one provider by placing its ID before `--query`. The query accepts multiple unquoted words. `--audio` downloads the resource into memory and reports the byte count without saving it. Provider definitions contain selectors and URLs only; do not add credentials, cookies, or tokens.
 
 ## Safety and access boundaries
 
