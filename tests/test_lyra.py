@@ -31,6 +31,27 @@ def test_fixture_search_returns_normalized_candidate():
     assert report.failures == []
 
 
+def test_search_can_target_one_provider(tmp_path):
+    fixture_path = (ROOT / "fixtures/site").resolve()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f"""[settings]\noutput_dir = \"./downloads\"\n\n[[sites]]\nid = \"first\"\nname = \"First\"\nadapter = \"fixture\"\nfixture_path = \"{fixture_path}\"\n\n[[sites]]\nid = \"second\"\nname = \"Second\"\nadapter = \"fixture\"\nfixture_path = \"{fixture_path}\"\n""",
+        encoding="utf-8",
+    )
+    config = load_config(config_path, default_registry().ids)
+
+    report = SearchService(config, default_registry()).search("fixture song", "second")
+
+    assert [candidate.site_id for candidate in report.candidates] == ["second"]
+
+
+def test_search_rejects_unknown_provider():
+    config = load_config(ROOT / "fixtures/valid-config.toml", default_registry().ids)
+
+    with pytest.raises(LyraError, match="enabled provider not found: missing"):
+        SearchService(config, default_registry()).search("fixture song", "missing")
+
+
 def test_one_site_failure_does_not_block_other_sites(tmp_path):
     config_path = tmp_path / "config.toml"
     config_path.write_text(
@@ -174,6 +195,42 @@ def test_download_query_auto_selects_top_result(tmp_path, capsys):
     assert main(["download", "fixture song", "--config", str(config_path), "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert Path(payload["audio_path"]).parent == output_dir
+
+
+def test_download_can_target_provider_for_query_and_cached_results(tmp_path, capsys):
+    fixture_path = (ROOT / "fixtures/site").resolve()
+    output_dir = tmp_path / "downloads"
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f"""[settings]\noutput_dir = \"{output_dir}\"\n\n[[sites]]\nid = \"first\"\nname = \"First\"\nadapter = \"fixture\"\nfixture_path = \"{fixture_path}\"\npriority = 20\n\n[[sites]]\nid = \"second\"\nname = \"Second\"\nadapter = \"fixture\"\nfixture_path = \"{fixture_path}\"\npriority = 10\n""",
+        encoding="utf-8",
+    )
+
+    assert main(["search", "fixture song", "--config", str(config_path)]) == 0
+    capsys.readouterr()
+    assert main([
+        "download", "--config", str(config_path), "--provider", "second", "--result", "1", "--json",
+    ]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["site"] == "Second"
+    assert json.loads(Path(payload["metadata_path"]).read_text(encoding="utf-8"))["site_id"] == "second"
+
+
+def test_download_query_provider_filters_search_results(tmp_path, capsys):
+    fixture_path = (ROOT / "fixtures/site").resolve()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f"""[settings]\noutput_dir = \"{tmp_path / 'downloads'}\"\n\n[[sites]]\nid = \"first\"\nname = \"First\"\nadapter = \"fixture\"\nfixture_path = \"{fixture_path}\"\n\n[[sites]]\nid = \"second\"\nname = \"Second\"\nadapter = \"fixture\"\nfixture_path = \"{fixture_path}\"\n""",
+        encoding="utf-8",
+    )
+
+    assert main([
+        "download", "fixture song", "--provider", "second", "--config", str(config_path), "--json",
+    ]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["site"] == "Second"
 
 
 def test_provider_test_reports_audio_download(capsys):

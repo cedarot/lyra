@@ -17,7 +17,7 @@ python -m pip install -e .
 ```sh
 lyra init config
 lyra config validate --config tests/fixtures/valid-config.toml
-lyra search "fixture song" --config tests/fixtures/valid-config.toml --json
+lyra search "fixture song" --config tests/fixtures/valid-config.toml --provider fixture --json
 lyra download --config tests/fixtures/valid-config.toml --result 1
 lyra download "fixture song" --config tests/fixtures/valid-config.toml
 ```
@@ -42,7 +42,7 @@ priority = 10
 fixture_path = "tests/fixtures/site"
 ```
 
-`search` writes a short-lived selection cache under `<output_dir>/.lyra/search-results.json`, which lets `download --result N` select the result from the most recent search. Both download commands use `settings.output_dir` by default; `--output DIR` is optional and means “save inside this directory”. Use `--json` for scripts. Existing output files are not overwritten unless `--overwrite` is supplied.
+`search` writes a short-lived selection cache under `<output_dir>/.lyra/search-results.json`, which lets `download --result N` select the result from the most recent search. Pass `--provider PROVIDER_ID` to `search` to query only one enabled provider. The same option on `download` limits a new query to that provider, or filters cached results when no query is supplied. Both download commands use `settings.output_dir` by default; `--output DIR` is optional and means “save inside this directory”. Use `--json` for scripts. Existing output files are not overwritten unless `--overwrite` is supplied.
 
 `resolve "歌曲名"` searches the enabled providers, resolves the selected result's direct audio URL, and prints it. `download "歌曲名"` performs the same search and automatically downloads the highest-ranked result; use `--result N` to choose a different result.
 

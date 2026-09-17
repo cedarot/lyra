@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 from .adapters.registry import default_registry
-from .application import DirectDownloadService, DownloadService, ProviderTestService, ResolveService, SearchService
+from .application import DirectDownloadService, DownloadService, ProviderTestService, ResolveService, SearchService, enabled_provider
 from .config import add_provider, delete_provider, default_config_path, init_config, load_config
 from .errors import ConfigError, LyraError, NoResultsError, SelectionError
 from .models import AppConfig, SearchReport, SongCandidate
@@ -77,6 +77,7 @@ def _parser() -> argparse.ArgumentParser:
 
     search = subparsers.add_parser("search", help="search enabled music sites")
     search.add_argument("query")
+    search.add_argument("--provider", dest="provider_id", help="search only this configured provider")
     search.add_argument("--config", type=Path, default=default_config_path())
     search.add_argument("--json", action="store_true", dest="as_json")
     search.add_argument("--verbose", action="store_true")
@@ -89,6 +90,7 @@ def _parser() -> argparse.ArgumentParser:
 
     download = subparsers.add_parser("download", help="search and download a song, or download a cached result")
     download.add_argument("query", nargs="?")
+    download.add_argument("--provider", dest="provider_id", help="search or select cached results from this provider")
     download.add_argument("--config", type=Path, default=default_config_path())
     download.add_argument("--result", type=int, help="one-based cached result index")
     download.add_argument("--output", type=str, help="output directory; defaults to settings.output_dir")
@@ -317,19 +319,25 @@ def _run(args: argparse.Namespace) -> int:
 
     config, registry = _load(args.config)
     if args.command == "search":
-        report = SearchService(config, registry).search(args.query)
+        report = SearchService(config, registry).search(args.query, args.provider_id)
         write_search_cache(config.output_dir, report)
         _print_report(report, args.as_json)
         return EXIT_OK if report.candidates else EXIT_NO_RESULTS
 
     if args.query:
-        report = SearchService(config, registry).search(args.query)
+        report = SearchService(config, registry).search(args.query, args.provider_id)
         if not report.candidates:
             raise NoResultsError("no results found for query")
         write_search_cache(config.output_dir, report)
         candidates = report.candidates
     else:
+        if args.provider_id is not None:
+            enabled_provider(config, args.provider_id)
         candidates = read_search_cache(config.output_dir)
+        if args.provider_id is not None:
+            candidates = [candidate for candidate in candidates if candidate.site_id == args.provider_id]
+            if not candidates:
+                raise NoResultsError(f"no cached results for provider: {args.provider_id}")
     candidate = _select(candidates, args.result, auto_select=bool(args.query))
     result = DownloadService(config, registry).download(candidate, args.output, args.overwrite)
     payload = {

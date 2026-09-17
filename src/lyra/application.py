@@ -17,17 +17,27 @@ def normalize_direct_url(url: str) -> str:
     return re.sub(r"\\([?=&])", r"\1", url.strip())
 
 
+def enabled_provider(config: AppConfig, provider_id: str) -> SiteConfig:
+    site = next((site for site in config.sites if site.id == provider_id and site.enabled), None)
+    if site is None:
+        raise LyraError(f"enabled provider not found: {provider_id}")
+    return site
+
+
 @dataclass
 class SearchService:
     config: AppConfig
     registry: AdapterRegistry
 
-    def search(self, query: str) -> SearchReport:
+    def search(self, query: str, provider_id: str | None = None) -> SearchReport:
         if not query.strip():
             raise LyraError("search query must not be empty")
         client = HttpClient(self.config.timeout, self.config.retries, self.config.max_response_bytes)
         report = SearchReport()
-        for site in sorted((s for s in self.config.sites if s.enabled), key=lambda item: -item.priority):
+        sites = (enabled_provider(self.config, provider_id),) if provider_id is not None else tuple(
+            site for site in self.config.sites if site.enabled
+        )
+        for site in sorted(sites, key=lambda item: -item.priority):
             try:
                 candidates = self.registry.get(site.adapter).search(query, site, client)
                 if not candidates:
@@ -45,9 +55,7 @@ class DownloadService:
     registry: AdapterRegistry
 
     def download(self, candidate: SongCandidate, output_dir: str | None = None, overwrite: bool = False) -> DownloadResult:
-        site = next((site for site in self.config.sites if site.id == candidate.site_id and site.enabled), None)
-        if site is None:
-            raise LyraError(f"site is not enabled: {candidate.site_id}")
+        site = enabled_provider(self.config, candidate.site_id)
         client = HttpClient(self.config.timeout, self.config.retries, self.config.max_response_bytes)
         adapter = self.registry.get(site.adapter)
         details = adapter.get_details(candidate, site, client)
@@ -134,9 +142,7 @@ class ProviderTestService:
     registry: AdapterRegistry
 
     def test(self, provider_id: str, query: str, result_index: int = 1, download_audio: bool = False) -> ProviderTestResult:
-        site = next((site for site in self.config.sites if site.id == provider_id and site.enabled), None)
-        if site is None:
-            raise LyraError(f"enabled provider not found: {provider_id}")
+        site = enabled_provider(self.config, provider_id)
         client = HttpClient(self.config.timeout, self.config.retries, self.config.max_response_bytes)
         adapter = self.registry.get(site.adapter)
         candidates = adapter.search(query, site, client)
