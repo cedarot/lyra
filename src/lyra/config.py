@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,11 @@ max_response_bytes = 10485760
 # fixture_path = "./tests/fixtures/site"
 '''
 
+_SITE_RESERVED_KEYS = {
+    "id", "name", "adapter", "base_url", "enabled", "priority", "fixture_path",
+    "timeout", "retries", "rate_limit",
+}
+
 
 def default_config_path() -> Path:
     config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
@@ -46,6 +52,74 @@ def init_config(path: Path, *, force: bool = False) -> Path:
     return path
 
 
+def _read_raw_config(path: Path) -> dict[str, Any]:
+    try:
+        with path.open("rb") as stream:
+            return tomllib.load(stream)
+    except FileNotFoundError as exc:
+        raise ConfigError(f"configuration file not found: {path}") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError(f"invalid TOML configuration: {exc}") from exc
+    except OSError as exc:
+        raise ConfigError(f"cannot read configuration: {exc}") from exc
+
+
+def _toml_value(value: Any) -> str:
+    if isinstance(value, (str, bool, int, float)):
+        return json.dumps(value, ensure_ascii=False) if isinstance(value, str) else str(value).lower() if isinstance(value, bool) else str(value)
+    raise ConfigError("provider configuration contains an unsupported TOML value")
+
+
+def _write_raw_config(path: Path, raw: dict[str, Any]) -> None:
+    settings = raw.get("settings", {})
+    sites = raw.get("sites", [])
+    if not isinstance(settings, dict) or not isinstance(sites, list):
+        raise ConfigError("configuration must contain a settings table and sites array")
+    lines = ["# Lyra configuration", "", "[settings]"]
+    for key, value in settings.items():
+        lines.append(f"{key} = {_toml_value(value)}")
+    for site in sites:
+        if not isinstance(site, dict):
+            raise ConfigError("each site must be a TOML table")
+        lines.extend(["", "[[sites]]"])
+        for key, value in site.items():
+            if isinstance(value, dict):
+                raise ConfigError("nested site settings are not supported by provider commands")
+            lines.append(f"{key} = {_toml_value(value)}")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(f"cannot write configuration: {exc}") from exc
+
+
+def add_provider(path: Path, provider: dict[str, Any], *, force: bool = False) -> None:
+    raw = _read_raw_config(path)
+    sites = raw.setdefault("sites", [])
+    if not isinstance(sites, list):
+        raise ConfigError("sites must be an array of tables")
+    existing = next((index for index, site in enumerate(sites) if site.get("id") == provider.get("id")), None)
+    if existing is not None and not force:
+        raise ConfigError(f"provider already exists: {provider['id']}; use --force to replace it")
+    if existing is None:
+        sites.append(provider)
+    else:
+        sites[existing] = provider
+    _write_raw_config(path, raw)
+
+
+def delete_provider(path: Path, provider_id: str) -> None:
+    raw = _read_raw_config(path)
+    sites = raw.get("sites", [])
+    if not isinstance(sites, list):
+        raise ConfigError("sites must be an array of tables")
+    remaining = [site for site in sites if site.get("id") != provider_id]
+    if len(remaining) == len(sites):
+        raise ConfigError(f"provider not found: {provider_id}")
+    raw["sites"] = remaining
+    _write_raw_config(path, raw)
+
+
 def _as_float(value: Any, field_name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ConfigError(f"{field_name} must be a number")
@@ -61,15 +135,7 @@ def _as_non_negative_int(value: Any, field_name: str) -> int:
 
 
 def load_config(path: Path, known_adapters: set[str] | None = None) -> AppConfig:
-    try:
-        with path.open("rb") as stream:
-            raw = tomllib.load(stream)
-    except FileNotFoundError as exc:
-        raise ConfigError(f"configuration file not found: {path}") from exc
-    except tomllib.TOMLDecodeError as exc:
-        raise ConfigError(f"invalid TOML configuration: {exc}") from exc
-    except OSError as exc:
-        raise ConfigError(f"cannot read configuration: {exc}") from exc
+    raw = _read_raw_config(path)
 
     settings = raw.get("settings", {})
     if not isinstance(settings, dict):
@@ -131,8 +197,7 @@ def load_config(path: Path, known_adapters: set[str] | None = None) -> AppConfig
         rate_limit = item.get("rate_limit", 0.0)
         if isinstance(rate_limit, bool) or not isinstance(rate_limit, (int, float)) or rate_limit < 0:
             raise ConfigError(f"sites.{site_id}.rate_limit must be a non-negative number")
-        reserved = {"id", "name", "adapter", "base_url", "enabled", "priority", "fixture_path", "timeout", "retries", "rate_limit"}
-        options = {key: value for key, value in item.items() if key not in reserved}
+        options = {key: value for key, value in item.items() if key not in _SITE_RESERVED_KEYS}
         sites.append(SiteConfig(
             id=site_id,
             name=name,

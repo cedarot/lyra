@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .base import SiteAdapter
 from .fixture import FixtureAdapter
+from .html import HtmlAdapter
 
 
 class AdapterRegistry:
@@ -27,4 +28,5 @@ class AdapterRegistry:
 def default_registry() -> AdapterRegistry:
     registry = AdapterRegistry()
     registry.register(FixtureAdapter())
+    registry.register(HtmlAdapter())
     return registry

@@ -43,6 +43,28 @@ fixture_path = "tests/fixtures/site"
 
 `search` writes a short-lived selection cache under `<output_dir>/.lyra/search-results.json`, which lets `download --result N` select the result from the most recent search. Use `--json` for scripts. Existing output files are not overwritten unless `--overwrite` is supplied.
 
+## Website providers
+
+Add a new website without changing Python code by configuring the generic HTML adapter with CSS selectors:
+
+```sh
+lyra provider add \
+  --config ~/.config/lyra/config.toml \
+  --id example \
+  --name "Example Music" \
+  --base-url https://music.example \
+  --search-path "/search?q={query}" \
+  --result-selector "article.song" \
+  --title-selector ".title" \
+  --details-selector "a.details" \
+  --artist-selector ".artist" \
+  --lyrics-selector "#lyrics" \
+  --audio-selector "a.audio" \
+  --audio-attr href
+```
+
+Manage providers with `lyra provider delete PROVIDER_ID`. Test search and audio access with `lyra provider test PROVIDER_ID --query "song title" --audio`; `--audio` downloads the resource into memory and reports the byte count without saving it. Provider definitions contain selectors and URLs only; do not add credentials, cookies, or tokens.
+
 ## Safety and access boundaries
 
 Lyra does not bypass DRM, paywalls, CAPTCHA, login restrictions, or other access controls. Users are responsible for complying with the target site's terms, copyright rules, and applicable law. Credentials, cookies, and access tokens are not stored by the MVP.

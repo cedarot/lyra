@@ -6,11 +6,12 @@ from pathlib import Path
 import pytest
 
 from lyra.adapters.registry import default_registry
+from lyra.adapters.html import HtmlAdapter
 from lyra.application import DownloadService, SearchService
 from lyra.cli import main
 from lyra.config import load_config
 from lyra.errors import ConfigError
-from lyra.models import SongCandidate
+from lyra.models import SiteConfig
 from lyra.storage import safe_component
 
 
@@ -95,3 +96,60 @@ def test_init_config_creates_template_and_requires_force(tmp_path, capsys):
     assert main(["init", "config", "--config", str(config_path)]) == 1
     assert "already exists" in capsys.readouterr().err
     assert main(["init", "config", "--config", str(config_path), "--force"]) == 0
+
+
+def test_provider_add_and_delete_updates_config(tmp_path, capsys):
+    config_path = tmp_path / "config.toml"
+    assert main(["init", "config", "--config", str(config_path)]) == 0
+    capsys.readouterr()
+
+    assert main([
+        "provider", "add", "--config", str(config_path), "--id", "example", "--name", "Example",
+        "--base-url", "https://example.test", "--search-path", "/search?q={query}",
+        "--result-selector", "article.song", "--title-selector", ".title", "--details-selector", "a.details",
+        "--artist-selector", ".artist", "--audio-selector", "a.audio", "--audio-attr", "href",
+    ]) == 0
+    capsys.readouterr()
+    config = load_config(config_path, default_registry().ids)
+    provider = config.sites[0]
+    assert provider.id == "example"
+    assert provider.adapter == "html"
+    assert provider.options["search_path"] == "/search?q={query}"
+
+    assert main(["provider", "delete", "example", "--config", str(config_path)]) == 0
+    assert "Deleted provider" in capsys.readouterr().out
+    assert "sites" not in config_path.read_text(encoding="utf-8")
+
+
+class FakeHttpClient:
+    def fetch_text(self, url, site):
+        if "/search" in url:
+            return """<article class='song'><span class='title'>New Song</span><span class='artist'>New Artist</span><a class='details' href='/song/1'>details</a></article>"""
+        return """<div id='lyrics'>[00:01]hello</div><audio id='audio' src='/audio/new.mp3'></audio>"""
+
+
+def test_html_adapter_uses_configured_selectors():
+    site = SiteConfig(
+        id="example", name="Example", adapter="html", base_url="https://example.test",
+        options={
+            "search_path": "/search?q={query}", "result_selector": "article.song", "title_selector": ".title",
+            "details_selector": "a.details", "artist_selector": ".artist", "lyrics_selector": "#lyrics",
+            "audio_selector": "audio", "audio_attr": "src", "audio_extension": "mp3",
+        },
+    )
+    adapter = HtmlAdapter()
+    candidates = adapter.search("new song", site, FakeHttpClient())
+    details = adapter.get_details(candidates[0], site, FakeHttpClient())
+
+    assert candidates[0].details_url == "https://example.test/song/1"
+    assert details.lyrics.content == "[00:01]hello\n"
+    assert details.audio.url == "https://example.test/audio/new.mp3"
+
+
+def test_provider_test_reports_audio_download(capsys):
+    config_path = ROOT / "fixtures/valid-config.toml"
+    assert main(["provider", "test", "fixture", "--config", str(config_path), "--query", "fixture song", "--audio", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["audio_available"] is True
+    assert payload["audio_downloaded"] is True
+    assert payload["audio_bytes"] > 0

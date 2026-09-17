@@ -100,3 +100,14 @@ class DownloadResult:
     audio_path: str | None
     metadata_path: str | None
     partial: bool
+
+
+@dataclass(frozen=True)
+class ProviderTestResult:
+    provider_id: str
+    query: str
+    candidate: SongCandidate | None
+    audio_available: bool
+    audio_downloaded: bool
+    audio_bytes: int | None
+    error: str | None = None

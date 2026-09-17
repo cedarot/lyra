@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Lyra contributors" }]
-dependencies = []
+dependencies = ["beautifulsoup4>=4.12"]
 
 [project.optional-dependencies]
 test = ["pytest>=8"]

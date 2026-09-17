@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 from .adapters.registry import default_registry
-from .application import DownloadService, SearchService
-from .config import default_config_path, init_config, load_config
+from .application import DownloadService, ProviderTestService, SearchService
+from .config import add_provider, delete_provider, default_config_path, init_config, load_config
 from .errors import ConfigError, LyraError, NoResultsError, SelectionError
 from .models import SearchReport, SongCandidate
 from .storage import read_search_cache, write_search_cache
@@ -31,6 +33,42 @@ def _parser() -> argparse.ArgumentParser:
     init_config_parser = init_subparsers.add_parser("config", help="create a starter TOML configuration")
     init_config_parser.add_argument("--config", type=Path, default=default_config_path())
     init_config_parser.add_argument("--force", action="store_true", help="replace an existing configuration")
+
+    provider = subparsers.add_parser("provider", help="manage configured website providers")
+    provider_subparsers = provider.add_subparsers(dest="provider_command", required=True)
+    provider_add = provider_subparsers.add_parser("add", help="add a config-driven HTML website provider")
+    provider_add.add_argument("--config", type=Path, default=default_config_path())
+    provider_add.add_argument("--id", required=True, dest="provider_id")
+    provider_add.add_argument("--name", required=True)
+    provider_add.add_argument("--base-url", required=True)
+    provider_add.add_argument("--search-path", required=True, help="URL path containing {query}")
+    provider_add.add_argument("--result-selector", required=True)
+    provider_add.add_argument("--title-selector", required=True)
+    provider_add.add_argument("--details-selector", required=True)
+    provider_add.add_argument("--artist-selector")
+    provider_add.add_argument("--album-selector")
+    provider_add.add_argument("--duration-selector")
+    provider_add.add_argument("--lyrics-selector")
+    provider_add.add_argument("--lyrics-attr")
+    provider_add.add_argument("--lyrics-extension", default="lrc")
+    provider_add.add_argument("--audio-selector")
+    provider_add.add_argument("--audio-attr", default="href")
+    provider_add.add_argument("--audio-extension", default="mp3")
+    provider_add.add_argument("--priority", type=int, default=0)
+    provider_add.add_argument("--rate-limit", type=float, default=0.0, help="seconds between requests")
+    provider_add.add_argument("--force", action="store_true", help="replace an existing provider")
+
+    provider_delete = provider_subparsers.add_parser("delete", help="delete a configured website provider")
+    provider_delete.add_argument("provider_id")
+    provider_delete.add_argument("--config", type=Path, default=default_config_path())
+
+    provider_test = provider_subparsers.add_parser("test", help="test a provider and optionally download one audio resource")
+    provider_test.add_argument("provider_id")
+    provider_test.add_argument("--query", required=True)
+    provider_test.add_argument("--config", type=Path, default=default_config_path())
+    provider_test.add_argument("--result", type=int, default=1)
+    provider_test.add_argument("--audio", action="store_true", help="download bytes to verify audio access")
+    provider_test.add_argument("--json", action="store_true", dest="as_json")
 
     search = subparsers.add_parser("search", help="search enabled music sites")
     search.add_argument("query")
@@ -70,7 +108,44 @@ def _print_report(report: SearchReport, as_json: bool) -> None:
         duration = f" ({candidate.duration})" if candidate.duration else ""
         print(f"{index}. {candidate.title}{artist}{album}{duration}  [{candidate.site_name}]")
     for failure in report.failures:
-        print(f"Site {failure.site_id} failed ({failure.category}): {failure.message}", file=sys.stderr)
+            print(f"Site {failure.site_id} failed ({failure.category}): {failure.message}", file=sys.stderr)
+
+
+def _provider_options(args: argparse.Namespace) -> dict[str, str]:
+    option_names = (
+        "search_path", "result_selector", "title_selector", "details_selector", "artist_selector",
+        "album_selector", "duration_selector", "lyrics_selector", "lyrics_attr", "lyrics_extension",
+        "audio_selector", "audio_attr", "audio_extension",
+    )
+    return {name: getattr(args, name) for name in option_names if getattr(args, name) is not None}
+
+
+def _print_provider_test(result, as_json: bool, downloaded: bool) -> int:
+    candidate = result.candidate.to_dict() if result.candidate else None
+    payload = {
+        "provider_id": result.provider_id,
+        "query": result.query,
+        "candidate": candidate,
+        "audio_available": result.audio_available,
+        "audio_downloaded": result.audio_downloaded,
+        "audio_bytes": result.audio_bytes,
+        "error": result.error,
+    }
+    if as_json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        selected = result.candidate.title if result.candidate else "none"
+        print(f"Provider: {result.provider_id}")
+        print(f"Selected: {selected}")
+        print(f"Audio available: {'yes' if result.audio_available else 'no'}")
+        if downloaded:
+            print(f"Audio downloaded: {'yes' if result.audio_downloaded else 'no'}")
+        if result.audio_bytes is not None:
+            print(f"Audio bytes: {result.audio_bytes}")
+        if result.error:
+            print(f"Error: {result.error}", file=sys.stderr)
+    passed = result.audio_downloaded if downloaded else result.audio_available
+    return EXIT_OK if passed else EXIT_RUNTIME
 
 
 def _select(candidates: list[SongCandidate], requested: int | None) -> SongCandidate:
@@ -96,6 +171,38 @@ def _run(args: argparse.Namespace) -> int:
         _load(args.config)
         print(f"Configuration is valid: {args.config}")
         return EXIT_OK
+
+    if args.command == "provider":
+        if args.provider_command == "add":
+            if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", args.provider_id):
+                raise ConfigError("provider id must contain lowercase letters, digits, '-' or '_'")
+            if "{query}" not in args.search_path:
+                raise ConfigError("search path must contain {query}")
+            parsed_base_url = urlparse(args.base_url)
+            if parsed_base_url.scheme != "https" or not parsed_base_url.netloc:
+                raise ConfigError("base URL must be an HTTPS URL")
+            if args.rate_limit < 0:
+                raise ConfigError("rate limit must be non-negative")
+            provider = {
+                "id": args.provider_id,
+                "name": args.name,
+                "adapter": "html",
+                "base_url": args.base_url,
+                "enabled": True,
+                "priority": args.priority,
+                "rate_limit": args.rate_limit,
+                **_provider_options(args),
+            }
+            add_provider(args.config, provider, force=args.force)
+            print(f"Added provider: {args.provider_id}")
+            return EXIT_OK
+        if args.provider_command == "delete":
+            delete_provider(args.config, args.provider_id)
+            print(f"Deleted provider: {args.provider_id}")
+            return EXIT_OK
+        config, registry = _load(args.config)
+        result = ProviderTestService(config, registry).test(args.provider_id, args.query, args.result, args.audio)
+        return _print_provider_test(result, args.as_json, args.audio)
 
     config, registry = _load(args.config)
     if args.command == "search":
