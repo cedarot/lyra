@@ -200,7 +200,7 @@ def load_config(path: Path, known_adapters: set[str] | None = None) -> AppConfig
         rate_limit = item.get("rate_limit", 0.0)
         if isinstance(rate_limit, bool) or not isinstance(rate_limit, (int, float)) or rate_limit < 0:
             raise ConfigError(f"sites.{site_id}.rate_limit must be a non-negative number")
-        browser_headless = item.get("browser_headless", False)
+        browser_headless = item.get("browser_headless", True)
         if not isinstance(browser_headless, bool):
             raise ConfigError(f"sites.{site_id}.browser_headless must be boolean")
         options = {key: value for key, value in item.items() if key not in _SITE_RESERVED_KEYS}

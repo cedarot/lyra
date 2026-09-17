@@ -103,11 +103,11 @@ class HttpClient:
 
 
 class BrowserClient:
-    """Interactive, ephemeral browser transport for providers requiring a browser session.
+    """Ephemeral headless browser transport for providers requiring a browser session.
 
     This transport does not persist cookies or automate CAPTCHA/access-control bypasses.
-    If a site presents a verification page, the user may complete it in the visible
-    browser window when running from an interactive terminal.
+    Browser mode launches silently by default. A visible browser is an explicit opt-in
+    for providers that require manual interaction.
     """
 
     def __init__(self, timeout: float, retries: int, max_response_bytes: int, site: SiteConfig):
@@ -145,7 +145,7 @@ class BrowserClient:
                     self._context = self._browser.new_context()
                     self._owns_context = True
             else:
-                headless = self.site.options.get("browser_headless", False)
+                headless = self.site.options.get("browser_headless", True)
                 self._browser = self._playwright.chromium.launch(headless=headless)
                 self._owns_browser = True
                 self._context = self._browser.new_context()
@@ -185,7 +185,7 @@ class BrowserClient:
     def _wait_for_user_verification(self, url: str) -> None:
         import sys
 
-        if not sys.stdin.isatty() or self.site.options.get("browser_headless", False):
+        if not sys.stdin.isatty() or self.site.options.get("browser_headless", True):
             raise SiteError(self.site.id, "access", "provider requires interactive browser verification; run from a terminal with browser access")
         print(f"Complete the provider verification in the browser window for {url}, then press Enter.", file=sys.stderr)
         input()

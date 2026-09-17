@@ -59,7 +59,9 @@ def _parser() -> argparse.ArgumentParser:
     provider_add.add_argument("--priority", type=int, default=0)
     provider_add.add_argument("--rate-limit", type=float, default=0.0, help="seconds between requests")
     provider_add.add_argument("--access-mode", choices=("http", "browser"), default="http", help="provider access transport")
-    provider_add.add_argument("--browser-headless", action="store_true", help="run browser access without a visible window")
+    browser_visibility = provider_add.add_mutually_exclusive_group()
+    browser_visibility.add_argument("--browser-headless", action="store_true", help="run browser access without a visible window (default)")
+    browser_visibility.add_argument("--browser-visible", action="store_true", help="open a visible browser for manual interaction")
     provider_add.add_argument("--browser-endpoint", help="credential-free CDP endpoint for a user-launched browser")
     provider_add.add_argument("--quality", choices=("96", "192"), default="96", help="24bit audio quality")
     provider_add.add_argument("--force", action="store_true", help="replace an existing provider")
@@ -299,8 +301,8 @@ def _run(args: argparse.Namespace) -> int:
                 raise ConfigError("rate limit must be non-negative")
             if args.adapter != "24bit" and args.quality != "96":
                 raise ConfigError("--quality requires --adapter 24bit")
-            if args.browser_headless and args.access_mode != "browser":
-                raise ConfigError("--browser-headless requires --access-mode browser")
+            if (args.browser_headless or args.browser_visible) and args.access_mode != "browser":
+                raise ConfigError("browser visibility flags require --access-mode browser")
             if args.browser_endpoint:
                 endpoint = urlparse(args.browser_endpoint)
                 if args.access_mode != "browser":
@@ -324,6 +326,8 @@ def _run(args: argparse.Namespace) -> int:
                 provider["quality"] = args.quality
             if args.browser_headless:
                 provider["browser_headless"] = True
+            if args.browser_visible:
+                provider["browser_headless"] = False
             if args.browser_endpoint:
                 provider["browser_endpoint"] = args.browser_endpoint
             add_provider(args.config, provider, force=args.force)

@@ -13,6 +13,7 @@ import lyra.application as application
 from lyra.cli import main
 from lyra.config import load_config
 from lyra.errors import ConfigError, LyraError
+from lyra.http import BrowserClient
 from lyra.models import AppConfig, SiteConfig
 from lyra.storage import safe_component
 
@@ -157,6 +158,28 @@ def test_provider_add_supports_browser_access_mode(tmp_path, capsys):
     assert config.sites[0].options["browser_endpoint"] == "http://127.0.0.1:9222"
 
 
+def test_browser_access_defaults_to_headless_and_allows_visible_override(tmp_path, capsys):
+    config_path = tmp_path / "config.toml"
+    assert main(["init", "config", "--config", str(config_path)]) == 0
+    capsys.readouterr()
+
+    assert main([
+        "provider", "add", "https://music.example.com", "--access-mode", "browser",
+        "--config", str(config_path),
+    ]) == 0
+    capsys.readouterr()
+    config = load_config(config_path, default_registry().ids)
+    assert config.sites[0].options.get("browser_headless", True) is True
+
+    assert main([
+        "provider", "add", "https://music.example.com", "--access-mode", "browser",
+        "--browser-visible", "--config", str(config_path), "--force",
+    ]) == 0
+    capsys.readouterr()
+    config = load_config(config_path, default_registry().ids)
+    assert config.sites[0].options["browser_headless"] is False
+
+
 def test_provider_add_supports_24bit_adapter(tmp_path, capsys):
     config_path = tmp_path / "config.toml"
     assert main(["init", "config", "--config", str(config_path)]) == 0
@@ -244,6 +267,52 @@ def test_browser_access_mode_selects_browser_transport(monkeypatch):
 
     assert isinstance(client, FakeBrowserClient)
     assert client.selected_site is site
+
+
+def test_browser_client_launches_headless_without_cdp(monkeypatch):
+    calls = {}
+
+    class FakePage:
+        pass
+
+    class FakeContext:
+        def new_page(self):
+            return FakePage()
+
+        def close(self):
+            pass
+
+    class FakeBrowser:
+        contexts = []
+
+        def new_context(self):
+            return FakeContext()
+
+        def close(self):
+            pass
+
+    class FakeChromium:
+        def launch(self, **kwargs):
+            calls.update(kwargs)
+            return FakeBrowser()
+
+    class FakePlaywright:
+        chromium = FakeChromium()
+
+        def start(self):
+            return self
+
+        def stop(self):
+            pass
+
+    monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: FakePlaywright())
+    site = SiteConfig(id="browser", name="Browser", adapter="html", access_mode="browser")
+    client = BrowserClient(10.0, 1, 1024, site)
+
+    client._start()
+    client.close()
+
+    assert calls["headless"] is True
 
 
 class FakeHttpClient:

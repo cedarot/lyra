@@ -44,7 +44,7 @@ fixture_path = "tests/fixtures/site"
 
 `search` writes a short-lived selection cache under `<output_dir>/.lyra/search-results.json`, which lets `download --result N` select the result from the most recent search. Pass `--provider PROVIDER_ID` to `search` to query only one enabled provider. The same option on `download` limits a new query to that provider, or filters cached results when no query is supplied. Both download commands use `settings.output_dir` by default; `--output DIR` is optional and means “save inside this directory”. Use `--json` for scripts. Existing output files are not overwritten unless `--overwrite` is supplied.
 
-Providers use `access_mode = "http"` by default. For a provider that requires JavaScript and a user-controlled browser session, configure `access_mode = "browser"` (install with `python -m pip install -e '.[browser]'` and then `python -m playwright install chromium`). Browser mode opens an ephemeral visible browser, keeps its session only for the current Lyra command, and lets the user complete any site verification manually. It does not persist cookies or automate CAPTCHA/access-control bypasses. `--browser-headless` is available for browser providers that do not require manual interaction.
+Providers use `access_mode = "http"` by default. For a provider that requires JavaScript, configure `access_mode = "browser"` (install with `python -m pip install -e '.[browser]'` and then `python -m playwright install chromium`). Browser mode launches an ephemeral headless browser automatically, keeps its session only for the current Lyra command, and runs silently without requiring a pre-opened browser. Use `--browser-visible` only when a provider requires manual interaction; `--browser-headless` is also accepted explicitly. It does not persist cookies or automate CAPTCHA/access-control bypasses.
 
 If a provider repeatedly challenges a Playwright-launched browser, connect Lyra to a user-launched Chrome instead. Start Chrome with a separate profile and CDP enabled, for example `google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/lyra-browser-profile`, then configure the provider with `--browser-endpoint http://127.0.0.1:9222`. Lyra connects to the existing browser context without closing it; the browser owns its session and the user remains responsible for completing site verification.
 
@@ -67,7 +67,6 @@ lyra provider add https://www.24bit.net \
   --id 24bit \
   --adapter 24bit \
   --access-mode browser \
-  --browser-endpoint http://127.0.0.1:9222 \
   --quality 96
 ```
 
