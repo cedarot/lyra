@@ -264,7 +264,7 @@ def test_24bit_adapter_reports_quota_page_as_access_error():
         def fetch_text(self, url, site):
             return "<html>今日访问已达限额，今日免费额度已用完，需要注册</html>"
 
-    with pytest.raises(SiteError, match="daily free quota is exhausted"):
+    with pytest.raises(SiteError, match="daily access quota is exhausted"):
         TwentyFourBitAdapter().get_details(candidate, site, QuotaClient())
 
 

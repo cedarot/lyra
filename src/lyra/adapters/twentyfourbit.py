@@ -66,7 +66,7 @@ class TwentyFourBitAdapter(SiteAdapter):
             lower_html = html.casefold()
             quota_markers = ("今日访问已达限额", "今日免费额度已用完", "免费额度", "需要注册")
             if any(marker in lower_html for marker in quota_markers):
-                raise SiteError(site.id, "access", "24bit daily free quota is exhausted; registration is required")
+                raise SiteError(site.id, "access", "24bit daily access quota is exhausted; wait until tomorrow or use the site's login flow")
             soup = BeautifulSoup(html, "html.parser")
             source = soup.select_one("audio source[src]")
         except SiteError:
